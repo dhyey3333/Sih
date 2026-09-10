@@ -281,3 +281,86 @@ which extension pages do not have by default. Asking for threads without it fail
 *load* rather than degrading gracefully. The "simd-threaded" binary runs
 single-threaded perfectly well, and the measured numbers above are with threads off —
 so they are the honest floor, not a best case.
+
+---
+
+## D17 — OCR on image regions only, never full-page
+
+**Decision.** Tesseract.js runs on `<img>`, `<canvas>` and `<video>` regions, at most
+three per frame, document-like ones first. Never over the page as a whole.
+
+**Why.** Page text already comes from the DOM — exactly, with perfect boxes, in
+microseconds. OCR over the same text would be slower, less accurate, and would add
+false positives to a layer that currently has none. The only thing OCR knows that the
+DOM does not is what is inside a picture.
+
+**What it buys.** Region flagging leans on alt text, class names and filenames, so an
+ID card saved as `IMG_2043.png` was invisible. Now it is read. And because recognised
+values go into the vault, a number read off a card image gets the *same token* as the
+same number typed into a form field — the server sees `⟦PROFILE.AADHAAR⟧` twice and
+can tell they are one person's number without ever seeing it.
+
+**Cost, and the fix.** A cold read is ~1.5 s per region. Caching per region on a 16×16
+quantised pixel hash takes every later step to ~2 ms, because across a twelve-step form
+fill the images never change — only the fields do. Measured 3,646 ms → 92 ms → 71 ms
+across three passes. Quantised, not exact: JPEG noise makes exact pixel equality
+useless between two captures of an unchanged screen.
+
+---
+
+## D18 — Prefer WASM over a *software* WebGPU adapter
+
+**Decision.** `checkWebgpu()` inspects the adapter and rejects SwiftShader, lavapipe,
+llvmpipe and friends, falling back to WASM.
+
+**Why.** Measured. WebGPU being *present* is not the same as WebGPU being *fast*. A VM,
+a locked-down corporate laptop, a blocklisted driver or a headless browser still
+reports an adapter — backed by a CPU rasteriser. On SwiftShader, YuNet took **~4,000 ms
+per frame against ~79 ms on the WASM path**. A naive "prefer WebGPU" check walks
+straight into a 50× regression on exactly the machines least able to afford it.
+
+**Effect.** The eval harness's per-page vision cost went from 18,409 ms to 329 ms.
+
+---
+
+## D19 — No `face` class in the custom detector
+
+**Decision.** The trained detector has eight classes and none of them is `face`. YuNet
+keeps that job.
+
+**Why.** We cannot synthesise photographs — the repo may not contain anyone's face —
+and an illustrated stand-in would teach the model to find drawings. That produces a
+number that looks good on our own validation split and fails on the first real profile
+picture. YuNet is trained on real photographs and measures 0.83–0.91 on them.
+
+**The general principle**, worth stating because it applies to the whole ML half: only
+train a class we can generate *honestly*. Everything else stays with a model that was
+trained on the real thing.
+
+---
+
+## D20 — Split the dataset by recipe, not by image
+
+**Decision.** 80/10/10 over *recipes* — whole page layouts — with a fixed seed.
+
+**Why.** Splitting by image puts near-identical pages in both train and validation:
+same layout, different fake name. The validation score then measures memorisation and
+reads far too well. Holding whole recipes out is the only way the number answers the
+question we care about: does this work on a page we have never seen?
+
+**It shows.** val mAP50 0.809 against test 0.716, on recipes with a different class
+mix. That gap is the split doing its job, and we report both.
+
+---
+
+## D21 — Pixel format is an explicit parameter
+
+**Decision.** `letterbox()` takes a `PixelFormat` — `bgr255` or `rgb01` — with no
+default that suits both callers.
+
+**Why.** The custom detector originally reused YuNet's letterbox. YuNet is an OpenCV
+model wanting BGR 0–255; Ultralytics YOLO wants RGB 0–1. Fed the wrong one, the model
+returned **2,187 boxes all at confidence exactly 1.0**. It fails *silently* — the shape
+is right, the count is plausible, and it looks like a working detector until the boxes
+are plotted. Naming the convention at every call site is cheap insurance against a bug
+with no error message.

@@ -11,7 +11,12 @@ import type { DomSnapshot, PiiType, StageTimings } from './protocol';
 
 export interface ResolvedAction {
   /** Token-free: the vault has already swapped tokens for real values. */
-  kind: 'click' | 'click_xy' | 'type' | 'select' | 'scroll' | 'key' | 'focus';
+  /**
+   * `type_xy` exists for controls the vision detector found in pixels: there is no
+   * DOM element to focus, so the content script clicks the point first and types
+   * into whatever that focused.
+   */
+  kind: 'click' | 'click_xy' | 'type' | 'type_xy' | 'select' | 'scroll' | 'key' | 'focus';
   elementId?: number;
   x?: number;
   y?: number;

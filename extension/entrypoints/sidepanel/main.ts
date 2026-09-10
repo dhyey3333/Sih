@@ -352,6 +352,12 @@ function renderVisionStatus(output: PipelineOutput): void {
   }
   if (stats.imageRegions > 0) parts.push(`${stats.imageRegions} flagged image region(s)`);
 
+  if (stats.detectorAvailable === false) {
+    parts.push('custom detector not bundled');
+  } else if (stats.detectorMs !== undefined) {
+    parts.push(`UI detector ${stats.detectorMs} ms · ${stats.detectorBoxes ?? 0} box(es)`);
+  }
+
   if (stats.ocrRegions) {
     const cached = stats.ocrCacheHits ? ` · ${stats.ocrCacheHits} read(s) saved by cache` : '';
     parts.push(

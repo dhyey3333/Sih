@@ -1,0 +1,16 @@
+[project]
+name = "privagent-eval"
+version = "0.1.0"
+description = "Metric harness. One command regenerates every number we report."
+requires-python = ">=3.11"
+dependencies = [
+    # Drives a real browser so the harness measures the same code that ships,
+    # rather than a reimplementation of it.
+    "playwright>=1.48",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
+[tool.ruff]
+line-length = 100

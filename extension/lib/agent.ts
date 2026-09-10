@@ -29,6 +29,7 @@ import {
 import type { Vault } from './pii/vault';
 import { loadImage } from './redact/render';
 import type { VisionLayer } from './vision';
+import { VISION_ID_BASE, type VisionElement } from './vision/ui-detector';
 
 export interface AgentOptions {
   serverUrl: string;
@@ -73,6 +74,8 @@ export class Agent {
   private stopped = false;
   private readonly history: HistoryEntry[] = [];
   private readonly sessionId = crypto.randomUUID();
+  /** Elements the detector found in pixels, from the most recent perception. */
+  private visionElements: VisionElement[] = [];
 
   constructor(
     private readonly vault: Vault,
@@ -229,7 +232,10 @@ export class Agent {
       step,
       history: this.history.slice(-8),
       visionDetections: vision.detections,
+      visionElements: vision.elements,
     });
+    // Remembered so an action on a pixel-found control can be resolved to a point.
+    this.visionElements = vision.elements;
     output.timings.vision = visionMs;
     output.visionStats = vision.stats;
     output.timings.capture = perceived.timings.capture;
@@ -338,6 +344,33 @@ export class Agent {
    * Refuses rather than typing a token we cannot resolve.
    */
   private resolve(response: StepResponse, imageScale: number): ResolvedAction {
+    // An id above VISION_ID_BASE names a control the *detector* found, which has no
+    // DOM element behind it. The only way to reach it is by coordinate, so a click
+    // becomes a click at its centre and a type becomes a click-then-type.
+    const detected =
+      response.element_id !== undefined && response.element_id >= VISION_ID_BASE
+        ? this.visionElements.find((e) => e.id === response.element_id)
+        : undefined;
+
+    if (detected) {
+      const x = Math.round(detected.bbox.x + detected.bbox.w / 2);
+      const y = Math.round(detected.bbox.y + detected.bbox.h / 2);
+
+      if (response.action === 'type') {
+        const text = response.text ?? '';
+        if (this.vault.hasUnresolvedTokens(text)) {
+          throw new Error(
+            `Refused to type: the server asked for a value we do not hold (${text}).`,
+          );
+        }
+        return { kind: 'type_xy', x, y, text: this.vault.resolve(text) };
+      }
+      if (response.action === 'click') return { kind: 'click_xy', x, y };
+      throw new Error(
+        `Action "${response.action}" cannot be performed on a detected control (id ${response.element_id})`,
+      );
+    }
+
     const base = {
       elementId: response.element_id,
       option: response.option,

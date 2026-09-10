@@ -36,8 +36,9 @@ ml/runs/
 .env.*
 !.env.example
 
-# Eval output
-eval/results/
+# Eval output: the JSON is regenerated noise, but RESULTS.md is the report
+# judges read, so it stays tracked.
+eval/results/results.json
 
 # Per-user Claude Code settings (launch.json is shared and stays tracked)
 .claude/settings.local.json
@@ -55,3 +56,14 @@ server/.venv/
 # eng.traineddata.gz IS committed so a fresh clone runs offline.
 extension/public/tesseract/tesseract-core-*
 extension/public/tesseract/worker.min.js
+
+# Trained detector: ~10 MB and produced by `ml/train.py`, not by hand. The extension
+# treats its absence as normal, so a clone without it still runs (DOM + YuNet + OCR).
+extension/public/models/ui_detector.onnx
+
+# ML datasets, runs and artifacts — regenerate with ml/synth and ml/train.py
+ml/data/
+ml/runs/
+ml/artifacts/
+ml/yolo*.pt
+runs/

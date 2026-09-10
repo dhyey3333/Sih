@@ -76,13 +76,6 @@ export interface LoadedSession {
 }
 
 /**
- * Create a session, preferring WebGPU.
- *
- * The model is fetched as bytes and handed to ORT directly rather than by URL:
- * it makes the fallback path cheap (no second fetch) and lets us report the real
- * model size for the resource metric.
- */
-/**
  * WXT generates `PublicPath` from the actual contents of `public/`, so a path to a
  * model we do not ship is a compile error rather than a 404 at demo time.
  * (Imported explicitly because `Parameters<>` resolves to `getURL`'s *last*
@@ -90,6 +83,14 @@ export interface LoadedSession {
  */
 export type ModelPath = PublicPath;
 
+/**
+ * Create a session, preferring WebGPU — but only a WebGPU worth having (see
+ * `checkWebgpu`).
+ *
+ * The model is fetched as bytes and handed to ORT directly rather than by URL:
+ * it makes the fallback path cheap (no second fetch) and lets us report the real
+ * model size for the resource metric.
+ */
 export async function createSession(
   modelPath: ModelPath,
   /**
@@ -110,9 +111,11 @@ export async function createSession(
 
   let webgpuError: string | undefined;
 
-  if (prefer === 'wasm') {
-    webgpuError = 'forced to wasm';
-  } else if (await webgpuAvailable()) {
+  const gpuCheck = prefer === 'wasm' ? { usable: false, reason: 'forced to wasm' } : await checkWebgpu();
+
+  if (!gpuCheck.usable) {
+    webgpuError = gpuCheck.reason;
+  } else {
     const started = performance.now();
     try {
       const session = await ort.InferenceSession.create(bytes, {
@@ -128,8 +131,6 @@ export async function createSession(
       // back is normal, not an error worth surfacing as a failure.
       webgpuError = error instanceof Error ? error.message : String(error);
     }
-  } else {
-    webgpuError = 'WebGPU not available in this browser';
   }
 
   const started = performance.now();
@@ -148,14 +149,54 @@ export async function createSession(
   };
 }
 
-async function webgpuAvailable(): Promise<boolean> {
-  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-  if (!gpu) return false;
+/** Adapter names that mean "there is no GPU here, this is a CPU emulating one". */
+const SOFTWARE_ADAPTER = /swiftshader|lavapipe|llvmpipe|software|microsoft basic|warp/i;
+
+interface AdapterCheck {
+  usable: boolean;
+  reason?: string;
+}
+
+/**
+ * WebGPU being *present* is not the same as WebGPU being *fast*.
+ *
+ * A machine with no usable GPU — a VM, a locked-down corporate laptop, a headless
+ * browser, a system where the driver is blocklisted — still reports a WebGPU adapter,
+ * backed by a software rasteriser. Measured on SwiftShader: **~4,000 ms per YuNet
+ * frame against ~79 ms on the WASM path**, a 50× regression that a naive
+ * "prefer WebGPU" check walks straight into.
+ *
+ * So the adapter is inspected, not just counted.
+ */
+async function checkWebgpu(): Promise<AdapterCheck> {
+  const gpu = (
+    navigator as Navigator & {
+      gpu?: { requestAdapter(): Promise<AdapterLike | null> };
+    }
+  ).gpu;
+  if (!gpu) return { usable: false, reason: 'WebGPU not available in this browser' };
+
   try {
-    return (await gpu.requestAdapter()) !== null;
+    const adapter = await gpu.requestAdapter();
+    if (!adapter) return { usable: false, reason: 'no WebGPU adapter' };
+
+    const info = adapter.info ?? (await adapter.requestAdapterInfo?.()) ?? {};
+    const description = [info.vendor, info.architecture, info.description]
+      .filter(Boolean)
+      .join(' ');
+
+    if (description && SOFTWARE_ADAPTER.test(description)) {
+      return { usable: false, reason: `software WebGPU adapter (${description}); WASM is faster` };
+    }
+    return { usable: true };
   } catch {
-    return false;
+    return { usable: false, reason: 'WebGPU adapter request failed' };
   }
+}
+
+interface AdapterLike {
+  info?: { vendor?: string; architecture?: string; description?: string };
+  requestAdapterInfo?: () => Promise<{ vendor?: string; architecture?: string; description?: string }>;
 }
 
 export function tensorFrom(data: Float32Array, dims: number[]): ort.Tensor {

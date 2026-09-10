@@ -18,6 +18,7 @@ import { detectionsFromFields, detectionsFromText, runPipeline } from '../lib/pi
 import { scanText } from '../lib/pii/validators';
 import { classifyField } from '../lib/pii/dom-heuristics';
 import { fuseDetections } from '../lib/redact/fuse';
+import { drawSetOfMarks, renderRedacted, toJpegDataUrl } from '../lib/redact/render';
 import { Vault } from '../lib/pii/vault';
 import { VisionLayer } from '../lib/vision';
 import { setAssetBase } from '../lib/vision/runtime';
@@ -31,6 +32,9 @@ const api = {
   detectionsFromText,
   runPipeline,
   fuseDetections,
+  renderRedacted,
+  drawSetOfMarks,
+  toJpegDataUrl,
   scanText,
   classifyField,
   Vault,

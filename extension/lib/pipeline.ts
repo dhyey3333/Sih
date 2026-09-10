@@ -29,6 +29,7 @@ import { clampLabel, sanitizeText, sanitizeUrl } from './pii/sanitize';
 import type { Vault } from './pii/vault';
 import { fuseDetections, redactedAreaRatio } from './redact/fuse';
 import type { VisionStats } from './vision';
+import type { VisionElement } from './vision/ui-detector';
 import { dataUrlToBase64, drawSetOfMarks, renderRedacted, toJpegDataUrl } from './redact/render';
 
 /**
@@ -53,6 +54,12 @@ export interface PipelineInput {
   history: HistoryEntry[];
   /** Detections contributed by the vision layer (M4+). Already in CSS pixels. */
   visionDetections?: Detection[];
+  /**
+   * Interactive elements the custom detector found in pixels. These get ids above
+   * `VISION_ID_BASE` and no DOM counterpart, so the agent acts on them by
+   * coordinate. Without them a canvas app is readable but not operable.
+   */
+  visionElements?: VisionElement[];
   /** Force a disclosure level instead of deciding one. */
   forceDisclosure?: DisclosureLevel;
 }
@@ -111,9 +118,14 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
   });
   // Set-of-Mark last, so a badge is never covered by a redaction box. Uses the
   // renderer's effective scale, which accounts for any downscale it applied.
+  // Vision-found elements are numbered too, or the VLM could see a control on the
+  // screenshot with no id to refer to it by.
   drawSetOfMarks(
     rendered.canvas,
-    snapshot.elements.map((e) => ({ id: e.id, bbox: e.bbox })),
+    [
+      ...snapshot.elements.map((e) => ({ id: e.id, bbox: e.bbox })),
+      ...(input.visionElements ?? []).map((e) => ({ id: e.id, bbox: e.bbox })),
+    ],
     { dpr: rendered.scale },
   );
   const redactedDataUrl = toJpegDataUrl(rendered.canvas);
@@ -121,7 +133,10 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
 
   /* 5. Sanitize strings -------------------------------------------- */
   watch.start('tokenize');
-  const elements = snapshot.elements.map((el) => toWireElement(el, vault));
+  const elements = [
+    ...snapshot.elements.map((el) => toWireElement(el, vault)),
+    ...(input.visionElements ?? []).map(toWireVisionElement),
+  ];
   const page = { ...sanitizeUrl(snapshot.url), title: sanitizeText(snapshot.title, vault).text };
   const redactions: WireRedaction[] = detections.map((d) => ({
     token: d.token,
@@ -274,6 +289,22 @@ function toWireElement(el: PageElement, vault: Vault): WireElement {
   }
 
   return wire;
+}
+
+/**
+ * A pixel-found control, as the VLM sees it.
+ *
+ * No label and no value: the detector reports geometry and a class, nothing more.
+ * The `detail` field says where it came from so the model knows it is looking at a
+ * best guess rather than a declared control.
+ */
+function toWireVisionElement(el: VisionElement): WireElement {
+  return {
+    id: el.id,
+    role: el.role,
+    bbox: [round(el.bbox.x), round(el.bbox.y), round(el.bbox.w), round(el.bbox.h)],
+    label: 'detected on screen (no DOM element)',
+  };
 }
 
 /* ------------------------------------------------------------------ *

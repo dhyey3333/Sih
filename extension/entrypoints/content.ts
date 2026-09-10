@@ -93,6 +93,34 @@ function executeAction(registry: Map<number, Element>, action: ResolvedAction): 
       return { ok: true, detail: `clicked at (${x}, ${y})` };
     }
 
+    case 'type_xy': {
+      // For a control the vision layer found in pixels. A canvas app has no element
+      // to focus, so click the point and let the page decide what receives the keys —
+      // usually a hidden input the app maintains for exactly this.
+      const { x = 0, y = 0 } = action;
+      const text = action.text ?? '';
+      const target = document.elementFromPoint(x, y) as HTMLElement | null;
+      if (!target) throw new Error(`Nothing at (${x}, ${y})`);
+      target.click();
+      target.focus?.({ preventScroll: true });
+
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+        setNativeValue(active, text);
+        dispatchInputEvents(active, text);
+      } else {
+        // Nothing focusable took it: synthesise key events at the point instead.
+        for (const char of text) {
+          const init: KeyboardEventInit = { key: char, bubbles: true, cancelable: true };
+          target.dispatchEvent(new KeyboardEvent('keydown', init));
+          target.dispatchEvent(new KeyboardEvent('keypress', init));
+          target.dispatchEvent(new KeyboardEvent('keyup', init));
+        }
+      }
+      // Length only — never the text itself.
+      return { ok: true, detail: `typed ${text.length} chars at (${x}, ${y})` };
+    }
+
     case 'focus': {
       const el = resolveElement(registry, action.elementId);
       (el as HTMLElement).focus?.({ preventScroll: false });

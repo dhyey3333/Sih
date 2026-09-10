@@ -50,8 +50,27 @@ export interface SourceRegion {
  * Top-left rather than centred padding keeps the reverse mapping a single
  * division, with no offset to forget.
  */
-export function letterbox(source: CanvasImageSource, region: SourceRegion): LetterboxResult {
-  const size = YUNET_INPUT_SIZE;
+/**
+ * Channel order and value range the model expects.
+ *
+ * These are **not** interchangeable, and getting it wrong fails loudly in one
+ * direction and silently in the other. Measured on our own YOLO export: fed
+ * `bgr255` it returns 2,187 boxes all at confidence exactly 1.0 — saturated
+ * nonsense that looks like a working detector until you plot the boxes.
+ *
+ *   bgr255  OpenCV convention. YuNet, and anything exported from OpenCV's zoo.
+ *   rgb01   The usual deep-learning convention. Ultralytics YOLO.
+ */
+export type PixelFormat = 'bgr255' | 'rgb01';
+
+export function letterbox(
+  source: CanvasImageSource,
+  region: SourceRegion,
+  /** Model input side. YuNet is a fixed 640 build; the custom detector reads its own. */
+  inputSize: number = YUNET_INPUT_SIZE,
+  format: PixelFormat = 'bgr255',
+): LetterboxResult {
+  const size = inputSize;
   // No `min(1, …)` cap: a 96 px avatar crop is deliberately *upscaled* to fill the
   // input. The model works in its own 640×640 space, so giving a small face more of
   // that space is precisely what makes it detectable.
@@ -74,11 +93,20 @@ export function letterbox(source: CanvasImageSource, region: SourceRegion): Lett
   const plane = size * size;
   const out = new Float32Array(3 * plane);
 
-  for (let i = 0; i < plane; i++) {
-    const o = i * 4;
-    out[i] = rgba[o + 2]!; // B
-    out[plane + i] = rgba[o + 1]!; // G
-    out[2 * plane + i] = rgba[o]!; // R
+  if (format === 'rgb01') {
+    for (let i = 0; i < plane; i++) {
+      const o = i * 4;
+      out[i] = rgba[o]! / 255; // R
+      out[plane + i] = rgba[o + 1]! / 255; // G
+      out[2 * plane + i] = rgba[o + 2]! / 255; // B
+    }
+  } else {
+    for (let i = 0; i < plane; i++) {
+      const o = i * 4;
+      out[i] = rgba[o + 2]!; // B
+      out[plane + i] = rgba[o + 1]!; // G
+      out[2 * plane + i] = rgba[o]!; // R
+    }
   }
 
   return { data: out, scale };

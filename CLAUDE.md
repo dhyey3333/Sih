@@ -44,7 +44,8 @@ A Chrome + Firefox extension that reads the current tab with small on-device vis
 - Extension (from `extension/`): `npm run dev` (Chrome), `npm run dev:firefox`, `npm run build`, `npm run build:firefox`, `npm run build:all`, `npm test`, `npm run compile` (typecheck), `npm run build:domcheck` (standalone bundle for scoring a page), `npm run assets` (restage the ORT WASM binary; runs on postinstall)
 - Server (from `server/`): `uv sync --dev`, `uv run uvicorn app.main:app --reload --port 8000`, `uv run pytest`
 - Demo site: `python3 -m http.server 5173 --directory demo-site`
-- Eval: `uv run python -m eval.run_all` *(M6 — not built yet; scoring is currently driven by hand through `build:domcheck`)*
+- ML (from `ml/`): `uv sync && uv run playwright install chromium`, `uv run python -m synth.generate --out data/synth --per-recipe 60`, `uv run python -m synth.preview --data data/synth --split train`, `uv sync --group train && uv run python train.py --data data/synth/data.yaml --epochs 80`, `uv run --group dev pytest`
+- Eval (from the repo root): `uv sync && uv run python -m eval.run_all` — needs `extension && npm run build:domcheck` first; writes `eval/results/RESULTS.md`
 
 ## Gotchas
 - MV3 forbids remotely hosted code: bundle onnxruntime-web's `.wasm`/`.mjs` files in the extension, point `ort.env.wasm.wasmPaths` at them, and allow `'wasm-unsafe-eval'` in the extension CSP.

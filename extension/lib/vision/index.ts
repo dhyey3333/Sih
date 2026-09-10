@@ -23,6 +23,7 @@ import type { Detection, DomSnapshot, ImageCandidate, PiiType, Rect } from '../p
 import type { Vault } from '../pii/vault';
 import { ChangeDetector } from './change';
 import { OcrEngine } from './ocr';
+import { UiDetector, type VisionElement } from './ui-detector';
 import {
   createSession,
   tensorFrom,
@@ -87,6 +88,10 @@ export interface VisionStats {
   ocrLoadMs?: number;
   /** Reads avoided because the region's pixels were unchanged. */
   ocrCacheHits?: number;
+  /** Custom UI detector: inference time, boxes produced, and whether it is bundled. */
+  detectorMs?: number;
+  detectorBoxes?: number;
+  detectorAvailable?: boolean;
   skipped: boolean;
   skipReason?: string;
   changeDiff?: number;
@@ -94,6 +99,12 @@ export interface VisionStats {
 
 export interface VisionResult {
   detections: Detection[];
+  /**
+   * Interactive elements found in pixels. Empty unless the custom detector is
+   * bundled — and the reason it exists: on a canvas app the DOM offers nothing to
+   * act on, so these are the agent's only handles.
+   */
+  elements: VisionElement[];
   stats: VisionStats;
 }
 
@@ -117,6 +128,9 @@ export class VisionLayer {
   ocrEnabled = true;
 
   private readonly ocr = new OcrEngine();
+  private readonly ui: UiDetector;
+  /** Vision-found interactive elements, reused when the screen has not changed. */
+  private elementCache: VisionElement[] = [];
   private readonly scoreThreshold: number;
   private readonly prefer?: Backend;
 
@@ -127,11 +141,17 @@ export class VisionLayer {
     this.ocrEnabled = options.ocr ?? true;
     this.scoreThreshold = options.scoreThreshold ?? 0.6;
     this.prefer = options.backend;
+    this.ui = new UiDetector({ backend: options.backend });
   }
 
   /** Mirrors the runtime override, so `eval/` can run this outside the extension. */
   setAssetBase(base: string): void {
     this.ocr.setAssetBase(base);
+  }
+
+  /** Whether the custom detector's weights are bundled. */
+  get detectorAvailable(): boolean {
+    return this.ui.available;
   }
 
   get info(): SessionInfo | null {
@@ -163,6 +183,8 @@ export class VisionLayer {
     this.session = null;
     this.sessionInfo = null;
     await this.ocr.dispose();
+    await this.ui.dispose();
+    this.elementCache = [];
     this.change.reset();
     this.cache = [];
   }
@@ -183,6 +205,7 @@ export class VisionLayer {
     if (!this.enabled) {
       return {
         detections: [],
+        elements: [],
         stats: {
           session: this.sessionInfo,
           inferenceMs: 0,
@@ -205,6 +228,7 @@ export class VisionLayer {
     if (!change.changed) {
       return {
         detections: [...this.cache, ...regions],
+        elements: this.elementCache,
         stats: {
           session: this.sessionInfo,
           inferenceMs: 0,
@@ -262,19 +286,30 @@ export class VisionLayer {
       detail: 'yunet',
     }));
 
-    // Pass 3: read text out of image regions. This is the only thing that finds PII
+    // Pass 3: the custom detector. Adds the redaction classes the DOM cannot see,
+    // and — the reason it exists — the interactive elements on a canvas app, where
+    // the DOM offers the agent nothing to act on. A no-op until a model is bundled.
+    const ui = await this.ui.detect(image, imageWidth, imageHeight, dpr, vault);
+    this.cache.push(...ui.detections);
+    this.elementCache = ui.elements;
+
+    // Pass 4: read text out of image regions. This is the only thing that finds PII
     // in an image the page never labelled.
     const ocr = await this.readImageText(image, snapshot, vault, imageWidth, imageHeight);
     this.cache.push(...ocr.detections);
 
     return {
       detections: [...this.cache, ...regions],
+      elements: this.elementCache,
       stats: {
         session: this.sessionInfo,
         inferenceMs,
         facesFound: merged.length,
         imageRegions: regions.length,
         cropPasses,
+        detectorMs: ui.inferenceMs,
+        detectorBoxes: ui.detections.length + ui.elements.length,
+        detectorAvailable: this.ui.available,
         ...ocr.stats,
         skipped: false,
         changeDiff: change.diff,

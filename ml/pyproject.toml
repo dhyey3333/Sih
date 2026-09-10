@@ -1,0 +1,29 @@
+[project]
+name = "privagent-ml"
+version = "0.1.0"
+description = "Synthetic data engine, training and ONNX export for PrivAgent's on-device detector."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    # Renders the generated pages and reads back ground-truth boxes from the DOM.
+    "playwright>=1.48",
+    # en_IN locale: names, addresses and phone numbers that look like the real
+    # thing without being anybody's.
+    "faker>=30.0",
+    "jinja2>=3.1",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+# Training is a separate group on purpose: torch + ultralytics is ~2.5 GB, and
+# generating data does not need any of it. `uv sync` stays fast for the common case.
+train = ["ultralytics>=8.3", "onnx>=1.17", "onnxruntime>=1.19", "onnxslim>=0.1"]
+dev = ["pytest>=8.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `synth` is a plain package in the project root rather than an installed dist,
+# so pytest needs the root on sys.path to import it.
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
