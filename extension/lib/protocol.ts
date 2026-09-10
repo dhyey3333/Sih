@@ -298,7 +298,7 @@ export interface StepResponse {
    * Which path produced this action. Shown in the UI so a rule-based fallback is
    * never mistaken for the model reasoning.
    */
-  planner?: 'vlm' | 'rule-based';
+  planner?: 'vlm' | 'rule-based' | 'local';
   /** Server-side timing, for the full latency breakdown. */
   timings?: Record<string, number>;
 }

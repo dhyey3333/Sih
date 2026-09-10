@@ -55,8 +55,8 @@ with OCR. `Recovered` counts ground-truth values still legible afterwards.
 
 | Requested | Actually used | Session load | Inference p50 | Min | Max | First run |
 |---|---|---|---|---|---|---|
-| webgpu | wasm *(fell back)* | 90 ms | 36 ms | 34 ms | 37 ms | 39 ms |
-| wasm | wasm | 14 ms | 34 ms | 33 ms | 36 ms | 36 ms |
+| webgpu | wasm *(fell back)* | 120 ms | 39 ms | 36 ms | 44 ms | 47 ms |
+| wasm | wasm | 13 ms | 35 ms | 34 ms | 37 ms | 36 ms |
 
 Fallback reason: `software WebGPU adapter (google swiftshader); WASM is faster`.
 
@@ -71,7 +71,7 @@ not changed, so OCR comes from cache — which is what a multi-step task actuall
 
 | Page | DOM snapshot | Detect + fuse | Vision | OCR | **Cold** | **Warm** |
 |---|---|---|---|---|---|---|
-| `kyc.html` | 9.6 ms | 0.5 ms | 88.9 ms | 435.1 ms | **534.1 ms** | **47.5 ms** |
-| `profile.html` | 1.4 ms | 0.2 ms | 39.8 ms | 144.3 ms | **185.7 ms** | **38.3 ms** |
-| `bank.html` | 1.4 ms | 0.2 ms | 41.6 ms | 0 ms | **43.2 ms** | **39.7 ms** |
-| `apply.html` | 1.6 ms | 0 ms | 39 ms | 0 ms | **40.6 ms** | **37.5 ms** |
+| `kyc.html` | 9.5 ms | 0.4 ms | 91.6 ms | 372 ms | **473.5 ms** | **45.9 ms** |
+| `profile.html` | 1.1 ms | 0.2 ms | 39.4 ms | 156.8 ms | **197.5 ms** | **37.8 ms** |
+| `bank.html` | 1.6 ms | 0.2 ms | 43.1 ms | 0 ms | **44.9 ms** | **39 ms** |
+| `apply.html` | 1.2 ms | 0 ms | 38.5 ms | 0 ms | **39.7 ms** | **36.8 ms** |

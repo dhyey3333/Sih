@@ -1,20 +1,19 @@
 /**
- * Side panel: the agent UI and, from M4, the on-device model runtime.
+ * Side panel: the agent UI and the on-device model runtime.
  *
  * It owns the vault and runs the sanitizer pipeline, because this is the only
- * extension context with a DOM (canvas for redaction) and WebGPU. The background
+ * extension context with a DOM (canvas, for redaction) and WebGPU. The background
  * worker just moves bytes; the content script just touches the page.
  *
  * Two entry points:
- *   Analyze page — perceive and sanitize only. Nothing is sent. This alone is the
- *                  whole privacy demonstration.
- *   Run task     — the full agent loop, through the server.
+ *   Analyze  — perceive and sanitize only. Nothing is sent. This alone is the whole
+ *              privacy demonstration.
+ *   Run task — the full agent loop, through the server.
  */
 
 import { Agent, describeAction, type StepReport } from '../../lib/agent';
 import { DEMO_PROFILE } from '../../lib/demo-profile';
-import type { StageTimings, StepRequest } from '../../lib/protocol';
-import type { Detection } from '../../lib/protocol';
+import type { Detection, StageTimings, StepRequest } from '../../lib/protocol';
 import type { PipelineOutput } from '../../lib/pipeline';
 import { describeIncidents } from '../../lib/pii/egress';
 import { PROFILE_KEYS, Vault, type ProfileKey } from '../../lib/pii/vault';
@@ -24,18 +23,17 @@ const vault = new Vault();
 
 /**
  * One vision layer for the whole panel session. Compiling the ONNX graph costs
- * ~100 ms, and the side panel only lives while it is open, so the session is
- * created once here and released on `pagehide` (CLAUDE.md).
+ * ~300 ms and the OCR worker ~900 ms, and the side panel only lives while it is
+ * open, so both are created once here and released on `pagehide` (CLAUDE.md).
  */
 const vision = new VisionLayer();
 
 let agent: Agent | null = null;
 let lastOutput: PipelineOutput | null = null;
-let originalDataUrl = '';
-let previewMode: 'sanitized' | 'original' = 'sanitized';
 let standaloneStep = 0;
+let logCount = 0;
 
-/** Resolver for the confirmation gate, set while the dialog is open. */
+/** Resolver for the confirmation gate, set while the sheet is open. */
 let pendingConfirm: ((approved: boolean) => void) | null = null;
 
 /* ------------------------------------------------------------------ *
@@ -50,40 +48,61 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 const ui = {
   status: $('status'),
+  statusText: $('status-text'),
+
+  stage: $('stage'),
+  stageEmpty: $('stage-empty'),
+  stageLegend: $('stage-legend'),
+  stageReveal: $('stage-reveal'),
+  stageDivider: $('stage-divider'),
+  stageSlider: $<HTMLInputElement>('stage-slider'),
+  previewOriginal: $<HTMLImageElement>('preview-original'),
+  previewSanitized: $<HTMLImageElement>('preview-sanitized'),
+
   task: $<HTMLInputElement>('task'),
-  analyze: $<HTMLButtonElement>('analyze'),
   run: $<HTMLButtonElement>('run'),
+  presets: $('presets'),
+  analyze: $<HTMLButtonElement>('analyze'),
   stop: $<HTMLButtonElement>('stop'),
   clear: $<HTMLButtonElement>('clear'),
   error: $('error'),
+
+  guard: $('guard'),
+  guardTitle: $('guard-title'),
+  guardDetail: $('guard-detail'),
+
+  statDetections: $('stat-detections'),
+  statArea: $('stat-area'),
+  statLevel: $('stat-level'),
+  metricLevel: $('metric-level'),
+  statLatency: $('stat-latency'),
+  statVault: $('stat-vault'),
+
+  panelDetections: $<HTMLDetailsElement>('panel-detections'),
+  detections: $('detections'),
+  detectionsCount: $('detections-count'),
+  timings: $('timings'),
+  timingsTotal: $('timings-total'),
+  payload: $('payload'),
+
+  visionToggle: $<HTMLInputElement>('vision-toggle'),
+  ocrToggle: $<HTMLInputElement>('ocr-toggle'),
+  visionStatus: $('vision-status'),
+
+  profile: $('profile'),
+  profileDemo: $<HTMLButtonElement>('profile-demo'),
+
+  log: $('log'),
+  logCount: $('log-count'),
+
+  serverUrl: $<HTMLInputElement>('server-url'),
+  checkServer: $<HTMLButtonElement>('check-server'),
+  serverStatus: $('server-status'),
+
   confirm: $('confirm'),
   confirmQuestion: $('confirm-question'),
   confirmYes: $<HTMLButtonElement>('confirm-yes'),
   confirmNo: $<HTMLButtonElement>('confirm-no'),
-  tabSanitized: $<HTMLButtonElement>('tab-sanitized'),
-  tabOriginal: $<HTMLButtonElement>('tab-original'),
-  preview: $('preview'),
-  previewImg: $<HTMLImageElement>('preview-img'),
-  statDetections: $('stat-detections'),
-  statArea: $('stat-area'),
-  statLevel: $('stat-level'),
-  statVault: $('stat-vault'),
-  plannerNote: $('planner-note'),
-  visionToggle: $<HTMLInputElement>('vision-toggle'),
-  ocrToggle: $<HTMLInputElement>('ocr-toggle'),
-  visionStatus: $('vision-status'),
-  egress: $('egress'),
-  egressDetail: $('egress-detail'),
-  detections: $('detections'),
-  detectionsCount: $('detections-count'),
-  timings: $('timings'),
-  payload: $('payload'),
-  profile: $('profile'),
-  profileDemo: $<HTMLButtonElement>('profile-demo'),
-  log: $('log'),
-  serverUrl: $<HTMLInputElement>('server-url'),
-  checkServer: $<HTMLButtonElement>('check-server'),
-  serverStatus: $('server-status'),
 };
 
 /* ------------------------------------------------------------------ *
@@ -93,30 +112,26 @@ const ui = {
 type Status = 'idle' | 'busy' | 'ok' | 'err';
 
 function setStatus(status: Status, text: string): void {
-  ui.status.className = `pill pill--${status}`;
-  ui.status.textContent = text;
+  ui.status.dataset.state = status;
+  ui.statusText.textContent = text;
 }
 
 function log(message: string, kind: 'info' | 'err' = 'info'): void {
   const li = document.createElement('li');
   if (kind === 'err') li.className = 'err';
-  const time = new Date().toLocaleTimeString([], { hour12: false });
-  li.innerHTML = `<b>${time}</b> ${escapeHtml(message)}`;
+
+  const time = document.createElement('time');
+  time.textContent = new Date().toLocaleTimeString([], { hour12: false });
+  li.append(time, document.createTextNode(message));
+
   ui.log.prepend(li);
   while (ui.log.children.length > 60) ui.log.lastElementChild?.remove();
+  ui.logCount.textContent = String(++logCount);
 }
 
 function showError(message: string | null): void {
-  if (!message) {
-    ui.error.hidden = true;
-    return;
-  }
-  ui.error.hidden = false;
-  ui.error.textContent = message;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  ui.error.hidden = !message;
+  if (message) ui.error.textContent = message;
 }
 
 function setRunning(running: boolean): void {
@@ -132,7 +147,9 @@ function setRunning(running: boolean): void {
 function askConfirmation(question: string): Promise<boolean> {
   ui.confirmQuestion.textContent = question;
   ui.confirm.hidden = false;
-  setStatus('busy', 'waiting for you');
+  setStatus('busy', 'Waiting for you');
+  ui.confirmYes.focus();
+
   return new Promise((resolve) => {
     pendingConfirm = (approved) => {
       ui.confirm.hidden = true;
@@ -144,6 +161,30 @@ function askConfirmation(question: string): Promise<boolean> {
 
 ui.confirmYes.addEventListener('click', () => pendingConfirm?.(true));
 ui.confirmNo.addEventListener('click', () => pendingConfirm?.(false));
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && pendingConfirm) pendingConfirm(false);
+});
+
+/* ------------------------------------------------------------------ *
+ * The comparison wipe
+ * ------------------------------------------------------------------ */
+
+function setReveal(percent: number): void {
+  const clamped = Math.min(100, Math.max(0, percent));
+  ui.stage.style.setProperty('--reveal', `${clamped}%`);
+}
+
+ui.stageSlider.addEventListener('input', () => setReveal(Number(ui.stageSlider.value)));
+
+function showPreview(originalUrl: string, sanitizedUrl: string): void {
+  ui.stageEmpty.hidden = true;
+  ui.previewOriginal.src = originalUrl || sanitizedUrl;
+  ui.previewSanitized.src = sanitizedUrl;
+  for (const el of [ui.previewOriginal, ui.stageReveal, ui.stageDivider, ui.stageSlider, ui.stageLegend]) {
+    el.hidden = false;
+  }
+  setReveal(Number(ui.stageSlider.value));
+}
 
 /* ------------------------------------------------------------------ *
  * Profile
@@ -153,7 +194,7 @@ const PROFILE_STORAGE_KEY = 'privagent.profile';
 const SERVER_STORAGE_KEY = 'privagent.serverUrl';
 
 function buildProfileForm(): void {
-  ui.profile.innerHTML = '';
+  ui.profile.replaceChildren();
   for (const key of PROFILE_KEYS) {
     const label = document.createElement('label');
     const span = document.createElement('span');
@@ -161,7 +202,6 @@ function buildProfileForm(): void {
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.dataset.key = key;
     input.value = vault.getProfile(key) ?? '';
     input.autocomplete = 'off';
     input.addEventListener('change', () => {
@@ -176,9 +216,9 @@ function buildProfileForm(): void {
 }
 
 /**
- * Persisted to `storage.session`, which lives in memory and is wiped when the
- * browser closes. Encrypted `storage.local` persistence is a later milestone —
- * until then, not writing PII to disk at all is the safer default.
+ * `storage.session` lives in memory and is wiped when the browser closes.
+ * `storage.local` would write PII to disk in plaintext; encrypted persistence is a
+ * later piece of work, and until then not writing it at all is the safer default.
  */
 async function persistProfile(): Promise<void> {
   try {
@@ -186,7 +226,7 @@ async function persistProfile(): Promise<void> {
       [PROFILE_STORAGE_KEY]: Object.fromEntries(vault.profileEntries()),
     });
   } catch {
-    /* storage.session unavailable: the profile simply stays in memory */
+    /* unavailable: the profile simply stays in memory */
   }
 }
 
@@ -203,7 +243,7 @@ async function restoreProfile(): Promise<void> {
   }
 }
 
-/** The server URL is not PII, so local storage is fine for it. */
+/** The server URL is not PII, so ordinary local storage is fine for it. */
 async function restoreServerUrl(): Promise<void> {
   try {
     const stored = await browser.storage?.local?.get(SERVER_STORAGE_KEY);
@@ -218,38 +258,37 @@ async function restoreServerUrl(): Promise<void> {
  * Rendering
  * ------------------------------------------------------------------ */
 
-function setPreviewMode(mode: 'sanitized' | 'original'): void {
-  previewMode = mode;
-  ui.tabSanitized.classList.toggle('is-active', mode === 'sanitized');
-  ui.tabOriginal.classList.toggle('is-active', mode === 'original');
-  ui.tabSanitized.setAttribute('aria-selected', String(mode === 'sanitized'));
-  ui.tabOriginal.setAttribute('aria-selected', String(mode === 'original'));
-
-  const src = mode === 'sanitized' ? lastOutput?.redactedDataUrl : originalDataUrl;
-  if (!src) return;
-  ui.previewImg.src = src;
-  ui.previewImg.hidden = false;
-  ui.preview.querySelector('.preview__empty')?.remove();
-}
-
 const CREDENTIAL_TYPES = new Set(['PASSWORD', 'CARD', 'CVV', 'AADHAAR', 'PAN', 'PASSPORT', 'ACCOUNT']);
 
 function renderDetections(detections: Detection[]): void {
   ui.detectionsCount.textContent = String(detections.length);
-  ui.detections.innerHTML = '';
+  ui.detections.replaceChildren();
 
   if (detections.length === 0) {
-    ui.detections.innerHTML = '<li class="muted">No sensitive content found on this screen.</li>';
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'No sensitive content found on this screen.';
+    ui.detections.append(li);
     return;
   }
 
   for (const d of detections) {
     const li = document.createElement('li');
-    const tagClass = d.type === 'FACE' ? 'tag tag--face' : CREDENTIAL_TYPES.has(d.type) ? 'tag tag--cred' : 'tag';
-    li.innerHTML =
-      `<span class="${tagClass}">${escapeHtml(d.type)}</span>` +
-      `<span class="token">${escapeHtml(d.token)}</span>` +
-      `<span class="src">${escapeHtml(d.source)} · ${Math.round(d.confidence * 100)}%</span>`;
+
+    const type = document.createElement('span');
+    type.className =
+      d.type === 'FACE' ? 'type type--face' : CREDENTIAL_TYPES.has(d.type) ? 'type type--cred' : 'type';
+    type.textContent = d.type;
+
+    const token = document.createElement('span');
+    token.className = 'token';
+    token.textContent = d.token;
+
+    const src = document.createElement('span');
+    src.className = 'src';
+    src.textContent = `${d.source} · ${Math.round(d.confidence * 100)}%`;
+
+    li.append(type, token, src);
     ui.detections.append(li);
   }
 }
@@ -257,6 +296,7 @@ function renderDetections(detections: Detection[]): void {
 const TIMING_LABELS: Partial<Record<keyof StageTimings, string>> = {
   capture: 'capture',
   snapshot: 'DOM snapshot',
+  vision: 'vision models',
   detect: 'detect PII',
   fuse: 'fuse boxes',
   redact: 'redact pixels',
@@ -268,29 +308,44 @@ const TIMING_LABELS: Partial<Record<keyof StageTimings, string>> = {
 };
 
 function renderTimings(timings: StageTimings): void {
-  const entries = Object.entries(timings).filter(([key]) => key !== 'total') as Array<
-    [keyof StageTimings, number]
-  >;
-  ui.timings.innerHTML = '';
+  const entries = Object.entries(timings).filter(
+    ([key, ms]) => key !== 'total' && typeof ms === 'number' && ms > 0,
+  ) as Array<[keyof StageTimings, number]>;
+
+  ui.timings.replaceChildren();
   if (entries.length === 0) {
-    ui.timings.innerHTML = '<li class="muted">Nothing measured yet.</li>';
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'Nothing measured yet.';
+    ui.timings.append(li);
+    ui.timingsTotal.textContent = '—';
     return;
   }
 
   const max = Math.max(...entries.map(([, ms]) => ms), 1);
   for (const [stage, ms] of entries) {
     const li = document.createElement('li');
-    li.innerHTML =
-      `<span>${escapeHtml(TIMING_LABELS[stage] ?? stage)}</span>` +
-      `<span class="track"><span class="fill" style="width:${Math.max(2, (ms / max) * 100)}%"></span></span>` +
-      `<span class="ms">${ms} ms</span>`;
+
+    const name = document.createElement('span');
+    name.textContent = TIMING_LABELS[stage] ?? stage;
+
+    const track = document.createElement('span');
+    track.className = 'track';
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.max(3, (ms / max) * 100)}%`;
+    track.append(fill);
+
+    const value = document.createElement('span');
+    value.className = 'ms';
+    value.textContent = `${ms} ms`;
+
+    li.append(name, track, value);
     ui.timings.append(li);
   }
 
   const wall = entries.reduce((sum, [, ms]) => sum + ms, 0);
-  const li = document.createElement('li');
-  li.innerHTML = `<span><b>total</b></span><span class="track"></span><span class="ms"><b>${Math.round(wall * 10) / 10} ms</b></span>`;
-  ui.timings.append(li);
+  ui.timingsTotal.textContent = `${Math.round(wall)} ms`;
+  ui.statLatency.textContent = `${Math.round(wall)}`;
 }
 
 /** The payload, with the screenshot summarised rather than inlined. */
@@ -307,82 +362,85 @@ function renderPayload(request: StepRequest): void {
   ui.payload.textContent = JSON.stringify(preview, null, 2);
 }
 
-function renderEgress(output: PipelineOutput): void {
+function renderGuard(output: PipelineOutput): void {
   const { egress } = output;
   if (egress.ok) {
-    ui.egress.className = 'egress egress--pass';
-    ui.egressDetail.textContent = `clean · ${egress.stringsScanned} strings · ${egress.durationMs.toFixed(1)} ms`;
+    ui.guard.dataset.state = 'pass';
+    ui.guardTitle.textContent = 'Egress guard passed';
+    ui.guardDetail.textContent =
+      `${egress.stringsScanned} strings re-scanned in ${egress.durationMs.toFixed(1)} ms · no PII`;
   } else {
-    ui.egress.className = 'egress egress--block';
-    ui.egressDetail.textContent = `BLOCKED · ${describeIncidents(egress.incidents)}`;
+    ui.guard.dataset.state = 'block';
+    ui.guardTitle.textContent = 'Blocked — nothing was sent';
+    ui.guardDetail.textContent = describeIncidents(egress.incidents);
   }
 }
 
-function updateVaultStat(): void {
-  ui.statVault.textContent = String(vault.size);
-}
-
 /**
- * The resource story, stated in the UI rather than in a slide: which backend the
- * model actually got, how big it is, how long it took to compile, and how long
- * this frame took — including when it was skipped because nothing changed.
+ * The resource story, in the UI rather than on a slide: which backend the model got,
+ * how big it is, how long this frame took, and when a frame was skipped entirely.
  */
 function renderVisionStatus(output: PipelineOutput): void {
   const stats = output.visionStats;
   if (!stats) return;
 
   if (stats.skipped && stats.skipReason === 'vision layer disabled') {
-    ui.visionStatus.textContent = 'off — DOM and text layers only';
+    ui.visionStatus.textContent = 'Off — DOM and text layers only.';
     return;
   }
 
   const parts: string[] = [];
   if (stats.session) {
     parts.push(
-      `${stats.session.backend.toUpperCase()} · ` +
-        `${Math.round(stats.session.modelBytes / 1024)} KB model · ` +
-        `${stats.session.loadMs} ms to load`,
+      `${stats.session.backend.toUpperCase()} · ${Math.round(stats.session.modelBytes / 1024)} KB · ` +
+        `${stats.session.loadMs} ms load`,
     );
   }
-
-  if (stats.skipped) {
-    parts.push(`frame skipped (${stats.skipReason}, Δ${stats.changeDiff ?? 0})`);
-  } else {
-    parts.push(`${stats.inferenceMs} ms inference · ${stats.facesFound} face(s)`);
-  }
-  if (stats.imageRegions > 0) parts.push(`${stats.imageRegions} flagged image region(s)`);
-
-  if (stats.detectorAvailable === false) {
-    parts.push('custom detector not bundled');
-  } else if (stats.detectorMs !== undefined) {
-    parts.push(`UI detector ${stats.detectorMs} ms · ${stats.detectorBoxes ?? 0} box(es)`);
-  }
-
+  parts.push(
+    stats.skipped
+      ? `frame skipped (${stats.skipReason})`
+      : `${stats.inferenceMs} ms · ${stats.facesFound} face(s)`,
+  );
+  if (stats.cropPasses) parts.push(`${stats.cropPasses} close-up pass(es)`);
+  if (stats.detectorAvailable === false) parts.push('custom detector not bundled');
+  else if (stats.detectorMs !== undefined) parts.push(`detector ${stats.detectorMs} ms`);
   if (stats.ocrRegions) {
-    const cached = stats.ocrCacheHits ? ` · ${stats.ocrCacheHits} read(s) saved by cache` : '';
-    parts.push(
-      `OCR ${stats.ocrRegions} region(s) in ${stats.ocrMs} ms · ` +
-        `${stats.ocrCharsRead ?? 0} chars read · ${stats.ocrFindings ?? 0} PII found${cached}`,
-    );
+    const cached = stats.ocrCacheHits ? `, ${stats.ocrCacheHits} cached` : '';
+    parts.push(`OCR ${stats.ocrRegions} region(s) ${stats.ocrMs} ms${cached}`);
   }
-  if (stats.session?.webgpuError) parts.push(`WebGPU unavailable: ${stats.session.webgpuError}`);
+  if (stats.session?.webgpuError) parts.push(stats.session.webgpuError);
 
   ui.visionStatus.textContent = parts.join(' · ');
 }
 
+function updateVaultStat(): void {
+  ui.statVault.textContent = String(vault.size);
+}
+
+const DISCLOSURE_NOTE: Record<number, string> = {
+  0: 'Handled locally — no request was made.',
+  1: 'Structure only — no screenshot was sent.',
+  2: 'Sanitized screenshot + structure.',
+};
+
 function renderOutput(output: PipelineOutput): void {
   lastOutput = output;
-  originalDataUrl = output.originalDataUrl ?? '';
+
   ui.statDetections.textContent = String(output.detections.length);
   ui.statArea.textContent = `${Math.round(output.areaRatio * 100)}%`;
   ui.statLevel.textContent = `L${output.disclosureLevel}`;
+  ui.metricLevel.dataset.level = String(output.disclosureLevel);
+  ui.metricLevel.title = DISCLOSURE_NOTE[output.disclosureLevel] ?? '';
   updateVaultStat();
+
   renderDetections(output.detections);
   renderTimings(output.timings);
   renderPayload(output.request);
-  renderEgress(output);
+  renderGuard(output);
   renderVisionStatus(output);
-  setPreviewMode(previewMode);
+
+  showPreview(output.originalDataUrl ?? '', output.redactedDataUrl);
+  if (output.detections.length > 0) ui.panelDetections.open = true;
 }
 
 /* ------------------------------------------------------------------ *
@@ -406,7 +464,7 @@ function makeAgent(): Agent {
 async function analyze(): Promise<void> {
   setRunning(true);
   showError(null);
-  setStatus('busy', 'reading page…');
+  setStatus('busy', 'Reading page');
 
   try {
     const output = await makeAgent().perceiveOnly(
@@ -416,18 +474,18 @@ async function analyze(): Promise<void> {
     renderOutput(output);
 
     if (output.egress.ok) {
-      setStatus('ok', 'safe to send');
+      setStatus('ok', 'Safe to send');
       log(
-        `${output.detections.length} detections · ${Math.round(output.areaRatio * 100)}% redacted · ` +
+        `${output.detections.length} redactions · ${Math.round(output.areaRatio * 100)}% of screen · ` +
           `L${output.disclosureLevel} · ${output.timings.total} ms`,
       );
     } else {
-      setStatus('err', 'egress blocked');
+      setStatus('err', 'Blocked');
       log(`Egress guard blocked the payload: ${describeIncidents(output.egress.incidents)}`, 'err');
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setStatus('err', 'failed');
+    setStatus('err', 'Failed');
     showError(message);
     log(message, 'err');
   } finally {
@@ -439,7 +497,8 @@ async function analyze(): Promise<void> {
 async function run(): Promise<void> {
   const task = ui.task.value.trim();
   if (!task) {
-    showError('Type a task first, for example: fill this form with my profile and stop before submitting.');
+    showError('Type a task first — or pick one of the suggestions.');
+    ui.task.focus();
     return;
   }
 
@@ -449,19 +508,18 @@ async function run(): Promise<void> {
   log(`Task: ${task}`);
 
   await agent.run(task, {
-    onStatus: setStatus,
+    onStatus: (status, text) => setStatus(status, capitalise(text)),
     onLog: log,
     onPerceived: renderOutput,
     onStep: (report: StepReport) => {
       renderTimings(report.output.timings);
-      if (report.response.planner) {
-        ui.plannerNote.hidden = false;
-        ui.plannerNote.textContent =
-          report.response.planner === 'vlm'
-            ? 'Decided by the server-side VLM.'
-            : 'Decided by the server’s deterministic planner (no VLM endpoint configured).';
-      }
       if (report.result?.ok) log(`✓ ${describeAction(report.response)}`);
+      if (report.response.planner) {
+        ui.visionStatus.title =
+          report.response.planner === 'vlm'
+            ? 'Decided by the server-side VLM'
+            : 'Decided by the server’s deterministic planner';
+      }
     },
     confirm: askConfirmation,
   });
@@ -472,18 +530,22 @@ async function run(): Promise<void> {
 
 async function checkServer(): Promise<void> {
   const url = ui.serverUrl.value.trim().replace(/\/$/, '');
-  ui.serverStatus.textContent = 'checking…';
+  ui.serverStatus.textContent = 'Checking…';
   try {
     const response = await fetch(`${url}/health`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = (await response.json()) as { planner?: string; vlm_model?: string | null };
     ui.serverStatus.textContent = body.vlm_model
-      ? `connected · VLM: ${body.vlm_model}`
-      : `connected · ${body.planner ?? 'unknown'} planner (no VLM configured)`;
+      ? `Connected · VLM: ${body.vlm_model}`
+      : `Connected · ${body.planner ?? 'unknown'} planner (no VLM configured)`;
     await browser.storage?.local?.set({ [SERVER_STORAGE_KEY]: url });
   } catch (error) {
-    ui.serverStatus.textContent = `unreachable — ${error instanceof Error ? error.message : error}`;
+    ui.serverStatus.textContent = `Unreachable — ${error instanceof Error ? error.message : error}`;
   }
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /* ------------------------------------------------------------------ *
@@ -492,17 +554,23 @@ async function checkServer(): Promise<void> {
 
 ui.analyze.addEventListener('click', () => void analyze());
 ui.run.addEventListener('click', () => void run());
+ui.checkServer.addEventListener('click', () => void checkServer());
+
+ui.task.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') void run();
+});
+
+ui.presets.addEventListener('click', (event) => {
+  const chip = (event.target as HTMLElement).closest<HTMLElement>('[data-task]');
+  if (!chip) return;
+  ui.task.value = chip.dataset.task ?? '';
+  ui.task.focus();
+});
+
 ui.stop.addEventListener('click', () => {
   agent?.stop();
   pendingConfirm?.(false);
   log('Stop requested.');
-});
-ui.checkServer.addEventListener('click', () => void checkServer());
-ui.tabSanitized.addEventListener('click', () => setPreviewMode('sanitized'));
-ui.tabOriginal.addEventListener('click', () => setPreviewMode('original'));
-
-ui.task.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') void run();
 });
 
 ui.clear.addEventListener('click', () => {
@@ -510,21 +578,24 @@ ui.clear.addEventListener('click', () => {
   vault.clearSession();
   standaloneStep = 0;
   lastOutput = null;
-  originalDataUrl = '';
-  ui.previewImg.hidden = true;
-  ui.previewImg.removeAttribute('src');
-  ui.detections.innerHTML = '<li class="muted">Nothing scanned yet.</li>';
-  ui.detectionsCount.textContent = '0';
-  ui.timings.innerHTML = '<li class="muted">Nothing measured yet.</li>';
-  ui.payload.textContent = '–';
-  ui.egress.className = 'egress egress--unknown';
-  ui.egressDetail.textContent = 'not run yet';
-  ui.statDetections.textContent = '–';
-  ui.statArea.textContent = '–';
-  ui.statLevel.textContent = '–';
-  ui.plannerNote.hidden = true;
+
+  for (const el of [ui.previewOriginal, ui.stageReveal, ui.stageDivider, ui.stageSlider, ui.stageLegend]) {
+    el.hidden = true;
+  }
+  ui.stageEmpty.hidden = false;
+  ui.previewOriginal.removeAttribute('src');
+  ui.previewSanitized.removeAttribute('src');
+
+  renderDetections([]);
+  renderTimings({});
+  ui.payload.textContent = '—';
+  ui.guard.dataset.state = 'idle';
+  ui.guardTitle.textContent = 'Egress guard';
+  ui.guardDetail.textContent = 'Nothing has left this device';
+  for (const el of [ui.statDetections, ui.statArea, ui.statLevel, ui.statLatency]) el.textContent = '—';
+  delete ui.metricLevel.dataset.level;
   updateVaultStat();
-  setStatus('idle', 'idle');
+  setStatus('idle', 'Ready');
   log('Session cleared. Tokens and captured values dropped.');
 });
 
@@ -542,8 +613,8 @@ ui.visionToggle.addEventListener('change', () => {
   vision.enabled = ui.visionToggle.checked;
   ui.ocrToggle.disabled = !ui.visionToggle.checked;
   ui.visionStatus.textContent = ui.visionToggle.checked
-    ? 'on — loads on first use'
-    : 'off — DOM and text layers only';
+    ? 'Models load on first use.'
+    : 'Off — DOM and text layers only.';
   log(`Vision layer ${ui.visionToggle.checked ? 'enabled' : 'disabled'}.`);
 });
 
@@ -552,7 +623,7 @@ ui.ocrToggle.addEventListener('change', () => {
   log(`OCR ${ui.ocrToggle.checked ? 'enabled' : 'disabled'}.`);
 });
 
-// The panel is torn down whenever it closes; release the WASM heap with it.
+// The panel is torn down whenever it closes; release the WASM heaps with it.
 window.addEventListener('pagehide', () => {
   void vision.dispose();
 });
@@ -561,6 +632,6 @@ void (async () => {
   await Promise.all([restoreProfile(), restoreServerUrl()]);
   buildProfileForm();
   updateVaultStat();
-  setStatus('idle', 'idle');
+  setStatus('idle', 'Ready');
   log('Ready. Nothing has left this device.');
 })();

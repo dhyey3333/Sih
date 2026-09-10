@@ -7,145 +7,240 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <header class="bar">
-      <div class="brand">
-        <span class="logo" aria-hidden="true"></span>
-        <div>
+    <!--
+      Side panel. Narrow (320–480px), and the only surface a judge actually looks at.
+
+      The layout is built around one idea: the *comparison* is the product. The
+      before/after wipe is the hero, everything else is progressive disclosure
+      underneath it. Panels stay collapsed until they have something to say.
+    -->
+    <div class="app">
+      <header class="titlebar">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 2.5 4.5 5.8v5.9c0 4.6 3.1 8.9 7.5 10 4.4-1.1 7.5-5.4 7.5-10V5.8L12 2.5Z"
+                  stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+            <path d="M8.6 12.1 11 14.5l4.6-4.6" stroke="currentColor" stroke-width="1.8"
+                  stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+        <span class="titlebar__text">
           <strong>PrivAgent</strong>
-          <span class="tagline">on-device redaction</span>
-        </div>
-      </div>
-      <span id="status" class="pill pill--idle">idle</span>
-    </header>
+          <small>On-device privacy for browser agents</small>
+        </span>
+        <span id="status" class="status" data-state="idle">
+          <i class="status__dot"></i><span id="status-text">Ready</span>
+        </span>
+      </header>
 
-    <main>
-      <section class="panel">
-        <label class="field">
-          <span class="field__label">Task</span>
-          <input
-            id="task"
-            type="text"
-            placeholder="Fill this form with my profile, stop before submitting"
-            autocomplete="off"
-          />
-        </label>
-        <div class="row">
-          <button id="analyze" class="btn">Analyze page</button>
-          <button id="run" class="btn btn--primary">Run task</button>
-        </div>
-        <div class="row">
-          <button id="stop" class="btn" disabled>Stop</button>
-          <button id="clear" class="btn">Reset session</button>
-        </div>
-        <p id="error" class="error" hidden></p>
+      <main class="scroll">
+        <!-- ── Hero: the comparison ─────────────────────────────── -->
+        <section class="stage" aria-label="Page preview">
+          <div class="stage__frame" id="stage">
+            <p class="stage__empty" id="stage-empty">
+              <span class="stage__empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="4.5" width="18" height="15" rx="2.5" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M3 9h18" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="6" cy="6.8" r=".9" fill="currentColor"/>
+                </svg>
+              </span>
+              Open any page and press <b>Analyze</b>
+            </p>
 
-        <div id="confirm" class="confirm" hidden>
-          <p id="confirm-question" class="confirm__q"></p>
-          <p class="hint">
-            The agent will not do this until you say so. Nothing has been clicked.
+            <img id="preview-original" class="stage__img" alt="Original page" hidden />
+            <div class="stage__reveal" id="stage-reveal" hidden>
+              <img id="preview-sanitized" class="stage__img" alt="Sanitized page" />
+            </div>
+            <div class="stage__divider" id="stage-divider" hidden>
+              <span class="stage__grip" aria-hidden="true"></span>
+            </div>
+
+            <input
+              type="range" min="0" max="100" value="55"
+              id="stage-slider" class="stage__slider"
+              aria-label="Reveal what the server sees"
+              hidden
+            />
+          </div>
+
+          <div class="stage__legend" id="stage-legend" hidden>
+            <span class="tag tag--plain">Your screen</span>
+            <span class="stage__hint">drag to compare</span>
+            <span class="tag tag--safe">What the server sees</span>
+          </div>
+        </section>
+
+        <!-- ── Command ──────────────────────────────────────────── -->
+        <section class="command">
+          <div class="prompt">
+            <input
+              id="task" type="text" autocomplete="off" spellcheck="false"
+              placeholder="Fill this form with my profile, stop before submitting"
+            />
+            <button id="run" class="prompt__go" title="Run task" aria-label="Run task">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M5 12h13M12.5 6l6 6-6 6" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="chips" id="presets">
+            <button class="chip" data-task="Fill this form with my profile and stop before submitting">Fill this form</button>
+            <button class="chip" data-task="Describe what is on this page">Describe page</button>
+            <button class="chip" data-task="Find the login form and fill my email">Find login</button>
+          </div>
+
+          <div class="actions">
+            <button id="analyze" class="btn btn--soft">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
+                <path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+              Analyze
+            </button>
+            <button id="stop" class="btn btn--soft" disabled>Stop</button>
+            <button id="clear" class="btn btn--ghost" title="Clear session">Reset</button>
+          </div>
+
+          <p id="error" class="notice notice--error" hidden></p>
+        </section>
+
+        <!-- ── The guard ────────────────────────────────────────── -->
+        <section class="guard" id="guard" data-state="idle">
+          <span class="guard__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 2.8 5 5.9v5.4c0 4.3 2.9 8.3 7 9.3 4.1-1 7-5 7-9.3V5.9L12 2.8Z"
+                    stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="guard__text">
+            <b id="guard-title">Egress guard</b>
+            <small id="guard-detail">Nothing has left this device</small>
+          </span>
+        </section>
+
+        <!-- ── Metrics ──────────────────────────────────────────── -->
+        <section class="metrics" aria-label="Metrics">
+          <div class="metric">
+            <b id="stat-detections">—</b><small>redacted</small>
+          </div>
+          <div class="metric">
+            <b id="stat-area">—</b><small>of screen</small>
+          </div>
+          <div class="metric" id="metric-level">
+            <b id="stat-level">—</b><small>disclosure</small>
+          </div>
+          <div class="metric">
+            <b id="stat-latency">—</b><small>per step</small>
+          </div>
+        </section>
+
+        <!-- ── Panels ───────────────────────────────────────────── -->
+        <details class="panel" id="panel-detections">
+          <summary>
+            <span class="panel__title">Detections</span>
+            <span class="pill" id="detections-count">0</span>
+          </summary>
+          <ul id="detections" class="list list--detections">
+            <li class="empty">Nothing scanned yet.</li>
+          </ul>
+        </details>
+
+        <details class="panel">
+          <summary>
+            <span class="panel__title">Pipeline</span>
+            <span class="pill pill--quiet" id="timings-total">—</span>
+          </summary>
+          <ul id="timings" class="list list--timings">
+            <li class="empty">Nothing measured yet.</li>
+          </ul>
+          <div class="vision" id="vision">
+            <label class="toggle">
+              <input type="checkbox" id="vision-toggle" checked />
+              <span class="toggle__track"><span class="toggle__thumb"></span></span>
+              <span class="toggle__label">On-device vision</span>
+            </label>
+            <label class="toggle toggle--sub">
+              <input type="checkbox" id="ocr-toggle" checked />
+              <span class="toggle__track"><span class="toggle__thumb"></span></span>
+              <span class="toggle__label">Read text in images</span>
+            </label>
+            <p id="vision-status" class="fineprint">Models load on first use.</p>
+          </div>
+        </details>
+
+        <details class="panel">
+          <summary>
+            <span class="panel__title">What leaves the device</span>
+            <span class="pill pill--quiet">JSON</span>
+          </summary>
+          <p class="fineprint">
+            The exact request body. The screenshot is summarised by size, not inlined.
           </p>
-          <div class="row">
-            <button id="confirm-no" class="btn">No, stop</button>
-            <button id="confirm-yes" class="btn btn--primary">Yes, do it</button>
+          <pre id="payload" class="code">—</pre>
+        </details>
+
+        <details class="panel">
+          <summary>
+            <span class="panel__title">My vault</span>
+            <span class="pill pill--quiet" id="stat-vault">0</span>
+          </summary>
+          <p class="fineprint">
+            Stays on this device. The server only ever learns which keys exist —
+            never their values.
+          </p>
+          <div id="profile" class="profile"></div>
+          <button id="profile-demo" class="btn btn--ghost btn--wide">Load demo profile (fake data)</button>
+        </details>
+
+        <details class="panel">
+          <summary>
+            <span class="panel__title">Activity</span>
+            <span class="pill pill--quiet" id="log-count">0</span>
+          </summary>
+          <ul id="log" class="list list--log"></ul>
+        </details>
+
+        <details class="panel">
+          <summary><span class="panel__title">Settings</span></summary>
+          <label class="setting">
+            <span>Server</span>
+            <input id="server-url" type="text" value="http://localhost:8000" autocomplete="off" />
+          </label>
+          <div class="actions">
+            <button id="check-server" class="btn btn--soft btn--wide">Test connection</button>
+          </div>
+          <p id="server-status" class="fineprint">Not checked.</p>
+        </details>
+
+        <footer class="colophon">
+          <span>Smart India Hackathon</span>
+          <span>ISRO · Department of Space</span>
+        </footer>
+      </main>
+
+      <!-- ── Confirmation sheet ─────────────────────────────────── -->
+      <div class="sheet" id="confirm" hidden>
+        <div class="sheet__card" role="alertdialog" aria-labelledby="confirm-question">
+          <span class="sheet__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 8.5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="12" cy="16.6" r="1.15" fill="currentColor"/>
+              <path d="M10.3 3.9 2.7 17.4a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"
+                    stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <p class="sheet__q" id="confirm-question"></p>
+          <p class="sheet__note">Nothing has been clicked. The agent is waiting for you.</p>
+          <div class="sheet__actions">
+            <button id="confirm-no" class="btn btn--soft btn--wide">Stop</button>
+            <button id="confirm-yes" class="btn btn--primary btn--wide">Continue</button>
           </div>
         </div>
-      </section>
-
-      <section class="panel">
-        <div class="toggle" role="tablist" aria-label="Preview mode">
-          <button id="tab-sanitized" class="toggle__btn is-active" role="tab" aria-selected="true">
-            What the server sees
-          </button>
-          <button id="tab-original" class="toggle__btn" role="tab" aria-selected="false">
-            Original
-          </button>
-        </div>
-        <div id="preview" class="preview">
-          <p class="preview__empty">Open any page and press <b>Analyze page</b>.</p>
-          <img id="preview-img" alt="Page preview" hidden />
-        </div>
-        <p class="hint">
-          Boxes are drawn on-device. Blue badges are element ids the server acts through.
-        </p>
-      </section>
-
-      <section class="panel">
-        <div class="stats">
-          <div class="stat"><span id="stat-detections">–</span><small>detections</small></div>
-          <div class="stat"><span id="stat-area">–</span><small>screen redacted</small></div>
-          <div class="stat"><span id="stat-level">–</span><small>disclosure</small></div>
-          <div class="stat"><span id="stat-vault">–</span><small>vault values</small></div>
-        </div>
-        <p class="hint" id="planner-note" hidden></p>
-
-        <div class="vision">
-          <label class="switch">
-            <input type="checkbox" id="vision-toggle" checked />
-            <span>On-device vision layer</span>
-          </label>
-          <label class="switch switch--sub">
-            <input type="checkbox" id="ocr-toggle" checked />
-            <span>Read text inside images (OCR)</span>
-          </label>
-          <p id="vision-status" class="hint">not loaded — loads on first use</p>
-        </div>
-        <div id="egress" class="egress egress--unknown">
-          <strong>Egress guard</strong>
-          <span id="egress-detail">not run yet</span>
-        </div>
-      </section>
-
-      <details class="panel" open>
-        <summary>Detections <span id="detections-count" class="count">0</span></summary>
-        <ul id="detections" class="detections">
-          <li class="muted">Nothing scanned yet.</li>
-        </ul>
-      </details>
-
-      <details class="panel">
-        <summary>Latency breakdown</summary>
-        <ul id="timings" class="timings">
-          <li class="muted">Nothing measured yet.</li>
-        </ul>
-      </details>
-
-      <details class="panel">
-        <summary>Payload inspector <span class="count">what leaves the device</span></summary>
-        <p class="hint">
-          The exact JSON body. The screenshot is shown as its byte length, not inlined.
-        </p>
-        <pre id="payload" class="payload">–</pre>
-      </details>
-
-      <details class="panel">
-        <summary>My profile <span class="count">stays on this device</span></summary>
-        <p class="hint">
-          Used to fill forms and to catch names and addresses that no pattern can match.
-          The server only ever learns which keys exist.
-        </p>
-        <div id="profile" class="profile"></div>
-        <button id="profile-demo" class="btn btn--ghost">Load demo profile (fake data)</button>
-      </details>
-
-      <details class="panel">
-        <summary>Activity</summary>
-        <ul id="log" class="log"></ul>
-      </details>
-
-      <details class="panel">
-        <summary>Settings</summary>
-        <label class="field" style="margin-top: 8px">
-          <span class="field__label">Server</span>
-          <input id="server-url" type="text" value="http://localhost:8000" autocomplete="off" />
-        </label>
-        <p class="hint">
-          Only sanitized, tokenized context is ever sent here. Open the payload
-          inspector above to see exactly what.
-        </p>
-        <button id="check-server" class="btn btn--ghost">Check connection</button>
-        <p id="server-status" class="hint">not checked</p>
-      </details>
-    </main>
+      </div>
+    </div>
 
     <script type="module" src="./main.ts"></script>
   </body>

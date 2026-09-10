@@ -20,6 +20,7 @@ import { classifyField } from '../lib/pii/dom-heuristics';
 import { fuseDetections } from '../lib/redact/fuse';
 import { drawSetOfMarks, renderRedacted, toJpegDataUrl } from '../lib/redact/render';
 import { Vault } from '../lib/pii/vault';
+import { planLocally } from '../lib/local-planner';
 import { VisionLayer } from '../lib/vision';
 import { setAssetBase } from '../lib/vision/runtime';
 import { OcrEngine } from '../lib/vision/ocr';
@@ -38,6 +39,7 @@ const api = {
   scanText,
   classifyField,
   Vault,
+  planLocally,
   VisionLayer,
   /** Point the model loader at wherever `extension/public/` is being served from. */
   setAssetBase,

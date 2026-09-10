@@ -77,6 +77,12 @@ export default defineConfig({
               // Required by AMO since Nov 2025. "none" is the literal truth here:
               // the extension transmits only sanitized, tokenized context, and
               // never PII, telemetry or analytics.
+              //
+              // `web-ext lint` warns that this key needs Firefox 140 while our floor
+              // is 115. That is expected and deliberate: an unknown manifest key is
+              // ignored by older Firefox, so keeping 115 costs nothing and keeps the
+              // extension installable a year further back. 115 is the real floor —
+              // it is where `storage.session` landed.
               data_collection_permissions: { required: ['none'] },
             },
           },

@@ -17,6 +17,7 @@
  */
 
 import { DEMO_PROFILE } from './demo-profile';
+import { planLocally } from './local-planner';
 import { sendToBackground, type ActionResult, type PerceiveResult, type ResolvedAction } from './messaging';
 import { runPipeline, type PipelineOutput } from './pipeline';
 import {
@@ -40,6 +41,11 @@ export interface AgentOptions {
   vision?: boolean;
   /** Turn OCR off independently — it is the expensive half of the vision layer. */
   ocr?: boolean;
+  /**
+   * Handle unambiguous steps on-device without contacting the server (L0).
+   * On by default: it is both the fastest and the most private path.
+   */
+  localFirst?: boolean;
 }
 
 export interface StepReport {
@@ -76,6 +82,8 @@ export class Agent {
   private readonly sessionId = crypto.randomUUID();
   /** Elements the detector found in pixels, from the most recent perception. */
   private visionElements: VisionElement[] = [];
+  /** Element ids already acted on, so the local planner never loops on one. */
+  private readonly attempted = new Set<number>();
 
   constructor(
     private readonly vault: Vault,
@@ -131,20 +139,41 @@ export class Agent {
           return;
         }
 
-        callbacks.onStatus('busy', `step ${step + 1}: asking the server…`);
-        const networkStart = performance.now();
-        const response = await this.postStep(output.request);
-        const networkMs = Math.round((performance.now() - networkStart) * 10) / 10;
-        this.throwIfStopped();
+        // L0: if the next action is unambiguous from what the page declared about
+        // itself, do it here and send nothing at all (docs/PLAN.md §3.5).
+        const local = this.options.localFirst === false
+          ? null
+          : planLocally({
+              task,
+              elements: perceived.snapshot.elements,
+              vault: this.vault,
+              attempted: this.attempted,
+            });
 
-        output.timings.network = networkMs - (response.timings?.server_total ?? 0);
-        output.timings.server = response.timings?.server_total ?? 0;
+        let response: StepResponse;
+        if (local) {
+          response = local.response;
+          output.disclosureLevel = 0;
+          callbacks.onPerceived(output);
+          callbacks.onLog(`local → ${describeAction(response)} — ${local.because}`);
+        } else {
+          callbacks.onStatus('busy', `step ${step + 1}: asking the server…`);
+          const networkStart = performance.now();
+          response = await this.postStep(output.request);
+          const networkMs = Math.round((performance.now() - networkStart) * 10) / 10;
+          this.throwIfStopped();
 
-        const report: StepReport = { step, output, response, networkMs };
-        callbacks.onLog(
-          `${response.planner ?? 'server'} → ${describeAction(response)}` +
-            (response.reason ? ` — ${response.reason}` : ''),
-        );
+          output.timings.network = networkMs - (response.timings?.server_total ?? 0);
+          output.timings.server = response.timings?.server_total ?? 0;
+        }
+
+        const report: StepReport = { step, output, response, networkMs: output.timings.network ?? 0 };
+        if (!local) {
+          callbacks.onLog(
+            `${response.planner ?? 'server'} → ${describeAction(response)}` +
+              (response.reason ? ` — ${response.reason}` : ''),
+          );
+        }
 
         if (response.action === 'done') {
           callbacks.onStep(report);
@@ -319,6 +348,8 @@ export class Agent {
       result = { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
     report.output.timings.execute = Math.round((performance.now() - executeStart) * 10) / 10;
+
+    if (response.element_id !== undefined) this.attempted.add(response.element_id);
 
     this.history.push({
       action: response.action,

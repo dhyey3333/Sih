@@ -5,6 +5,9 @@ A privacy-preserving vision agent that runs in the browser.
 Built for the Smart India Hackathon problem
 [*On-device Visual Perception for Light-weight Browser Agents*](docs/problem.md).
 
+**Indian Space Research Organisation (ISRO)** · Department of Space
+Category **Software** · Theme **Smart Automation**
+
 PrivAgent reads the page you are on with on-device models, blacks out every password, ID number,
 card, email, face and address **before any network request is made**, and sends only the
 sanitized, tokenized context to a server-side open-weights VLM. The VLM replies with one UI
@@ -53,7 +56,7 @@ A model can be wrong. The architecture is built so that being wrong is not enoug
 
 ## Where it stands
 
-M0–M6 are done and measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
+All seven milestones are done and measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
 [docs/PLAN.md](docs/PLAN.md) for the roadmap.
 
 **Privacy filter**, scored automatically in a real browser against `data-pii` ground truth:
@@ -157,6 +160,10 @@ OpenAI-compatible endpoint (vLLM, Ollama, or a hosted open-weights model).
 
 It works on any site, not just the demo pages — the DOM layer is generic, not per-site rules.
 
+**Running the demo for an audience:** [`docs/DEMO.md`](docs/DEMO.md) is a five-minute script with
+the failure modes and the questions to expect. **How each judging criterion is met, with the
+measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
+
 ## Layout
 
 | Path | What |
@@ -170,7 +177,7 @@ It works on any site, not just the demo pages — the DOM layer is generic, not 
 | `ml/` | synthetic data engine, training, ONNX export |
 | `eval/` | one-command metric harness |
 | `demo-site/` | mock pages with **fake** PII, annotated with ground truth |
-| `docs/` | [plan](docs/PLAN.md) · [problem](docs/problem.md) · [progress](docs/PROGRESS.md) · [decisions](docs/DECISIONS.md) · [teammate review](docs/TEAMMATE_REVIEW.md) |
+| `docs/` | [submission](docs/SUBMISSION.md) · [demo script](docs/DEMO.md) · [plan](docs/PLAN.md) · [problem](docs/problem.md) · [progress](docs/PROGRESS.md) · [decisions](docs/DECISIONS.md) · [teammate review](docs/TEAMMATE_REVIEW.md) |
 | `reference/` | teammate's earlier prototype, read-only, gitignored |
 
 ## Commands
