@@ -1,0 +1,29 @@
+# One URL per line. Blank lines and lines starting with # are ignored.
+# Aim for 150-300+ URLs for a real training set -- mix of login pages,
+# signup forms, e-commerce, blogs, dashboards, so the model generalizes
+# across different site layouts instead of memorizing one look.
+#
+# Add your own project's demo page(s) too, e.g.:
+# file:///path/to/vision-agent/demo-page/signup.html
+
+https://github.com/login
+https://github.com/signup
+https://en.wikipedia.org/wiki/Special:UserLogin
+https://www.python.org/
+https://news.ycombinator.com/
+https://www.w3schools.com/html/html_forms.asp
+https://www.wikipedia.org/
+https://stackoverflow.com/users/login
+https://www.amazon.in/
+https://www.flipkart.com/
+https://www.reddit.com/login/
+https://twitter.com/i/flow/login
+https://www.linkedin.com/login
+https://mail.google.com/
+https://www.indiatoday.in/
+https://www.bbc.com/news
+https://www.nytimes.com/
+https://developer.mozilla.org/en-US/
+https://www.w3.org/
+https://www.gov.uk/
+file:///home/claude/vision-agent/vision-agent/demo-page/signup.html

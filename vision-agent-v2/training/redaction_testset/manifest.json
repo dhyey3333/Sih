@@ -1,0 +1,194 @@
+[
+  {
+    "id": 0,
+    "file": "case_00.png",
+    "text": "Card Number: 4111 1111 1111 1111",
+    "sensitive": true,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 517,
+      "height": 21
+    }
+  },
+  {
+    "id": 1,
+    "file": "case_01.png",
+    "text": "Visa ending in 4000 1234 5678 9010",
+    "sensitive": true,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 518,
+      "height": 27
+    }
+  },
+  {
+    "id": 2,
+    "file": "case_02.png",
+    "text": "Aadhaar Number 1234 5678 9012",
+    "sensitive": true,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 480,
+      "height": 21
+    }
+  },
+  {
+    "id": 3,
+    "file": "case_03.png",
+    "text": "CVV 823",
+    "sensitive": true,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 120,
+      "height": 20
+    }
+  },
+  {
+    "id": 4,
+    "file": "case_04.png",
+    "text": "Security Code: 047",
+    "sensitive": true,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 267,
+      "height": 27
+    }
+  },
+  {
+    "id": 5,
+    "file": "case_05.png",
+    "text": "PIN 4821",
+    "sensitive": true,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 126,
+      "height": 20
+    }
+  },
+  {
+    "id": 6,
+    "file": "case_06.png",
+    "text": "Password: hunter2fallback",
+    "sensitive": true,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 370,
+      "height": 21
+    }
+  },
+  {
+    "id": 7,
+    "file": "case_07.png",
+    "text": "New Password mySecret99",
+    "sensitive": true,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 379,
+      "height": 27
+    }
+  },
+  {
+    "id": 8,
+    "file": "case_08.png",
+    "text": "Full Name: John Doe",
+    "sensitive": false,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 283,
+      "height": 27
+    }
+  },
+  {
+    "id": 9,
+    "file": "case_09.png",
+    "text": "Email: john.doe@example.com",
+    "sensitive": false,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 435,
+      "height": 27
+    }
+  },
+  {
+    "id": 10,
+    "file": "case_10.png",
+    "text": "Phone +91 98765 43210",
+    "sensitive": false,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 351,
+      "height": 21
+    }
+  },
+  {
+    "id": 11,
+    "file": "case_11.png",
+    "text": "Order ID 20260910-4471",
+    "sensitive": false,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 351,
+      "height": 21
+    }
+  },
+  {
+    "id": 12,
+    "file": "case_12.png",
+    "text": "Shipping Address 221B Baker Street",
+    "sensitive": false,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 507,
+      "height": 27
+    }
+  },
+  {
+    "id": 13,
+    "file": "case_13.png",
+    "text": "Zip Code 560001",
+    "sensitive": false,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 241,
+      "height": 27
+    }
+  },
+  {
+    "id": 14,
+    "file": "case_14.png",
+    "text": "Please review your details before submitting",
+    "sensitive": false,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 625,
+      "height": 27
+    }
+  },
+  {
+    "id": 15,
+    "file": "case_15.png",
+    "text": "Total Amount Rs 2999.00",
+    "sensitive": false,
+    "gt_box": {
+      "x": 20,
+      "y": 20,
+      "width": 353,
+      "height": 21
+    }
+  }
+]
