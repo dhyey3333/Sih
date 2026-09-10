@@ -14,7 +14,7 @@
 import { DEMO_PROFILE } from '../lib/demo-profile';
 import { buildSnapshot } from '../lib/dom/snapshot';
 import { scorePage } from '../lib/eval/score-page';
-import { detectionsFromFields, detectionsFromText } from '../lib/pipeline';
+import { detectionsFromFields, detectionsFromText, runPipeline } from '../lib/pipeline';
 import { scanText } from '../lib/pii/validators';
 import { classifyField } from '../lib/pii/dom-heuristics';
 import { fuseDetections } from '../lib/redact/fuse';
@@ -26,6 +26,7 @@ const api = {
   DEMO_PROFILE,
   detectionsFromFields,
   detectionsFromText,
+  runPipeline,
   fuseDetections,
   scanText,
   classifyField,

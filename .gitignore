@@ -41,3 +41,6 @@ eval/results/
 *.swp
 .idea/
 .vscode/
+
+# uv virtualenv
+server/.venv/

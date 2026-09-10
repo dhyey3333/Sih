@@ -30,10 +30,25 @@
           />
         </label>
         <div class="row">
-          <button id="analyze" class="btn btn--primary">Analyze page</button>
+          <button id="analyze" class="btn">Analyze page</button>
+          <button id="run" class="btn btn--primary">Run task</button>
+        </div>
+        <div class="row">
+          <button id="stop" class="btn" disabled>Stop</button>
           <button id="clear" class="btn">Reset session</button>
         </div>
         <p id="error" class="error" hidden></p>
+
+        <div id="confirm" class="confirm" hidden>
+          <p id="confirm-question" class="confirm__q"></p>
+          <p class="hint">
+            The agent will not do this until you say so. Nothing has been clicked.
+          </p>
+          <div class="row">
+            <button id="confirm-no" class="btn">No, stop</button>
+            <button id="confirm-yes" class="btn btn--primary">Yes, do it</button>
+          </div>
+        </div>
       </section>
 
       <section class="panel">
@@ -61,6 +76,7 @@
           <div class="stat"><span id="stat-level">–</span><small>disclosure</small></div>
           <div class="stat"><span id="stat-vault">–</span><small>vault values</small></div>
         </div>
+        <p class="hint" id="planner-note" hidden></p>
         <div id="egress" class="egress egress--unknown">
           <strong>Egress guard</strong>
           <span id="egress-detail">not run yet</span>
@@ -102,6 +118,20 @@
       <details class="panel">
         <summary>Activity</summary>
         <ul id="log" class="log"></ul>
+      </details>
+
+      <details class="panel">
+        <summary>Settings</summary>
+        <label class="field" style="margin-top: 8px">
+          <span class="field__label">Server</span>
+          <input id="server-url" type="text" value="http://localhost:8000" autocomplete="off" />
+        </label>
+        <p class="hint">
+          Only sanitized, tokenized context is ever sent here. Open the payload
+          inspector above to see exactly what.
+        </p>
+        <button id="check-server" class="btn btn--ghost">Check connection</button>
+        <p id="server-status" class="hint">not checked</p>
       </details>
     </main>
 

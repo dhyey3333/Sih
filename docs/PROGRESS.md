@@ -7,8 +7,8 @@ Status board. Updated at the end of every milestone (CLAUDE.md).
 | M0 Teammate review | ✅ `docs/TEAMMATE_REVIEW.md` |
 | M1 Skeleton | ✅ WXT extension building for Chrome + Firefox |
 | M2 DOM privacy layer | ✅ validators, vault, sanitizer, fusion, redaction, egress guard, side panel |
-| M3 Agent loop | ⬜ next — FastAPI server, VLM, action executor, confirm-before-submit |
-| M4 Vision layer v1 | ⬜ face detector + OCR via onnxruntime-web |
+| M3 Agent loop | ✅ FastAPI server, provider-agnostic VLM, action executor, confirm-before-submit |
+| M4 Vision layer v1 | ⬜ next — face detector + OCR via onnxruntime-web |
 | M5 Custom detector | ⬜ synthetic data → train → ONNX → integrate |
 | M6 Eval harness | ⬜ one command rebuilds every number |
 | M7 Polish | ⬜ disclosure levels, latency, Firefox pass, demo script, backup video |
@@ -106,7 +106,118 @@ non-PII. A district is address data; the ground truth was corrected, not the rul
   Note also that Python here is 3.14, and Ultralytics/PyTorch wheels lag new Python releases —
   M5 training will want a 3.11/3.12 environment.
 
-### Suggested commit
+---
+
+## 2026-09-10 — M3 Agent loop
+
+### Built
+
+**Server** (`server/`, FastAPI + Pydantic on Python 3.12, deps via `uv`)
+
+- `app/schemas.py` — mirrors `lib/protocol.ts`.
+- `app/validators.py` + `app/egress.py` — an *independent* implementation of the
+  high-confidence validators, run on every inbound payload. If raw PII arrives, the
+  request is rejected with `422` rather than forwarded to a third-party model.
+- `app/prompt.py` — the system prompt that teaches the model the redaction scheme:
+  what `⟦TYPE_N⟧` and `⟦PROFILE.KEY⟧` mean, never to guess a redacted value, to act
+  through element ids, and never to press an irreversible button.
+- `app/vlm.py` — provider-agnostic OpenAI-compatible client (vLLM / Ollama /
+  hosted), with a tolerant JSON extractor for small models that wrap output in prose.
+- `app/planner.py` — deterministic planner. Completes the demo with no key, no GPU
+  and no network, and is the guaranteed fallback when the VLM fails.
+- `app/main.py` — `GET /health`, `POST /v1/step`.
+
+**Extension**
+
+- `lib/agent.ts` — the loop, with three gates that do not trust the model:
+  unresolvable tokens are refused, irreversible actions stop for a human, and the
+  step budget is bounded.
+- Side panel — Run/Stop, a confirmation gate, the server settings and connection
+  check, and a note saying which planner decided each step.
+- `demo-site/apply.html` — an **empty** form, so the agent has something to fill.
+  (`kyc.html` is pre-filled: that one is the privacy demo, this one the agent demo.)
+
+### Verification
+
+- `uv run pytest` — **62 tests pass**.
+- `npm test` — **187 tests pass** (8 files). 249 across the repo.
+- `npx tsc --noEmit` clean; both browser targets build.
+
+### Measured — end-to-end, real browser against the live server
+
+Task: *"Fill this form with my profile and stop before submitting"* on `apply.html`.
+
+**9 steps, 9 fields filled, every one sent as a token and resolved locally, then
+`done` without touching Submit.**
+
+```
+step 0  ⟦PROFILE.FULL_NAME⟧ → full_name        step 5  ⟦PROFILE.PAN⟧      → panNumber
+step 1  ⟦PROFILE.EMAIL⟧     → email            step 6  ⟦PROFILE.ADDRESS⟧  → address
+step 2  ⟦PROFILE.PHONE⟧     → mobile_no        step 7  ⟦PROFILE.PINCODE⟧  → pincode
+step 3  ⟦PROFILE.DOB⟧       → date_of_birth    step 8  ⟦PROFILE.UPI⟧      → vpa
+step 4  ⟦PROFILE.AADHAAR⟧   → aadhaar_no       step 9  done — stopped before submit
+```
+
+The server saw only tokens. Not one real value crossed the network.
+
+| Stage | Time |
+|---|---|
+| detect PII | 0.7 ms |
+| fuse boxes | 1.5 ms |
+| redact pixels | 192.7 ms |
+| tokenize | 10.4 ms |
+| egress guard | 9.7 ms (142 strings) |
+| **client total** | **215.7 ms** |
+| network round trip | 52 ms |
+| server (guard 3.8 + planner 0.7) | 4.8 ms |
+
+Payload: **42 KB** JPEG at 1024×1280, from a 2560×3200 capture.
+
+### One optimization, one bug, both found by measuring
+
+1. **Redaction was 490 ms** — rendering and encoding an 8-megapixel canvas dominated
+   the whole pipeline. Capping the output at 1280 px on the long edge took it to
+   **193 ms** and the payload from **145 KB to 42 KB**, at no cost in usefulness
+   (D11). This also required fixing the `click_xy` coordinate space.
+2. **A zero-size capture** (minimized window, backgrounded tab) threw an opaque
+   `drawImage … width or height of 0` from inside canvas. It now fails with a
+   message the UI can actually show the user.
+
+Also corrected: the planner claimed "filled 8 fields" after filling 9, because the
+client sends only a recent history window. It no longer asserts a count (D12).
+
+### Not done yet
+
+- **No vision layer.** On `kyc.html` the profile photo and the ID-card scan are still
+  fully legible — name, date of birth and Aadhaar number are readable inside the
+  image. The DOM cannot see into an `<img>`; that is exactly M4's job, and it is the
+  most visible remaining gap.
+- No VLM has been exercised against a live endpoint — the loop above ran on the
+  deterministic planner. The VLM path has unit tests but needs a real model booked
+  against it before the demo.
+- `eval/` is still manual (M6).
+
+```
+feat: agent loop — FastAPI server, provider-agnostic VLM, confirm-before-submit
+
+M3. POST /v1/step takes sanitized, tokenized context and returns one UI action.
+An independent inbound guard rejects any payload containing raw PII rather than
+forwarding it to a third-party model. The VLM client speaks OpenAI-compatible to
+vLLM, Ollama or a hosted endpoint; a deterministic planner completes the demo
+with no key, no GPU and no network.
+
+Client-side the agent loop adds three gates that do not trust the model:
+unresolvable tokens are refused, irreversible actions stop for a human, and the
+step budget is bounded.
+
+Verified end to end in a real browser: 9 fields filled from tokens alone,
+stopping before Submit. 215 ms client, 52 ms network, 4.8 ms server, 42 KB
+payload. Capping the sent image at 1280px cut redaction from 490 ms to 193 ms.
+
+62 server tests, 187 extension tests, typecheck clean, both targets build.
+```
+
+### M0–M2 commit (f62c6aa)
 
 ```
 feat: on-device DOM privacy layer with measured 1.000 precision / 0.976 recall

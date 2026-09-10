@@ -41,9 +41,10 @@ A Chrome + Firefox extension that reads the current tab with small on-device vis
 - ML: Ultralytics YOLO (nano) for detection, exported to ONNX. Python deps managed with `uv`.
 
 ## Commands (keep this list current)
-- Extension: `npm run dev` (Chrome), `npm run dev:firefox`, `npm run build`, `npm test`
-- Server: `uv run uvicorn app.main:app --reload --port 8000`, `uv run pytest`
-- Eval: `uv run python -m eval.run_all`
+- Extension (from `extension/`): `npm run dev` (Chrome), `npm run dev:firefox`, `npm run build`, `npm run build:firefox`, `npm run build:all`, `npm test`, `npm run compile` (typecheck), `npm run build:domcheck` (standalone bundle for scoring a page)
+- Server (from `server/`): `uv sync --dev`, `uv run uvicorn app.main:app --reload --port 8000`, `uv run pytest`
+- Demo site: `python3 -m http.server 5173 --directory demo-site`
+- Eval: `uv run python -m eval.run_all` *(M6 — not built yet; scoring is currently driven by hand through `build:domcheck`)*
 
 ## Gotchas
 - MV3 forbids remotely hosted code: bundle onnxruntime-web's `.wasm`/`.mjs` files in the extension, point `ort.env.wasm.wasmPaths` at them, and allow `'wasm-unsafe-eval'` in the extension CSP.

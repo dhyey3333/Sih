@@ -161,4 +161,36 @@ statement requires ("any offline deployable model"). The mock means the whole lo
 run offline with no key — and, as `reference/teammate` also concluded, it means the demo does
 not die if the venue Wi-Fi does.
 
-*(Applies from M3; recorded here now because it shaped the protocol.)*
+---
+
+## D11 — The sent image is capped at 1280 px on the long edge
+
+**Decision.** The redaction renderer downscales to a maximum long edge of 1280 px
+before painting boxes and encoding.
+
+**Why.** Measured. A 1280×1600 viewport at dpr 2 is a 2560×3200 canvas, and rendering
+plus JPEG-encoding it took **490 ms** — more than twice everything else in the pipeline
+combined, and the dominant term in end-to-end latency (15% of the score). Capping the
+long edge took it to **193 ms** and the payload from **145 KB to 42 KB**.
+
+**What it costs.** Nothing measurable. VLMs downscale to roughly this size internally
+anyway, so the model was never going to see those pixels. Redaction boxes are computed
+from DOM rects in CSS pixels and scaled at draw time, so their accuracy does not depend
+on the output resolution at all.
+
+**Consequence.** `screen.width/height` on the wire are the *rendered* dimensions, and
+any `click_xy` the server returns is in that space. The agent divides by
+`PipelineOutput.imageScale` before handing a coordinate to the page.
+
+---
+
+## D12 — The deterministic planner does not report a field count
+
+**Decision.** The `done` summary says "filled every field I could", not "filled N fields".
+
+**Why.** The client sends only the last 8 history entries, so any count the server
+derives under-reports a longer run — it claimed 8 after filling 9. Rather than grow the
+payload to make a cosmetic number correct, the server stops asserting it and the client,
+which knows the true total, logs it.
+
+*(D10 applies from M3; recorded during M2 because it shaped the protocol.)*

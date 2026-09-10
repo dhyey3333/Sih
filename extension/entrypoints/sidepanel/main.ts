@@ -4,22 +4,30 @@
  * It owns the vault and runs the sanitizer pipeline, because this is the only
  * extension context with a DOM (canvas for redaction) and WebGPU. The background
  * worker just moves bytes; the content script just touches the page.
+ *
+ * Two entry points:
+ *   Analyze page — perceive and sanitize only. Nothing is sent. This alone is the
+ *                  whole privacy demonstration.
+ *   Run task     — the full agent loop, through the server.
  */
 
+import { Agent, describeAction, type StepReport } from '../../lib/agent';
 import { DEMO_PROFILE } from '../../lib/demo-profile';
-import { sendToBackground, type PerceiveResult } from '../../lib/messaging';
-import type { Detection, StageTimings, StepRequest } from '../../lib/protocol';
-import { runPipeline, type PipelineOutput } from '../../lib/pipeline';
+import type { StageTimings, StepRequest } from '../../lib/protocol';
+import type { Detection } from '../../lib/protocol';
+import type { PipelineOutput } from '../../lib/pipeline';
 import { describeIncidents } from '../../lib/pii/egress';
 import { PROFILE_KEYS, Vault, type ProfileKey } from '../../lib/pii/vault';
-import { loadImage } from '../../lib/redact/render';
 
 const vault = new Vault();
-const sessionId = crypto.randomUUID();
-let step = 0;
+let agent: Agent | null = null;
 let lastOutput: PipelineOutput | null = null;
 let originalDataUrl = '';
 let previewMode: 'sanitized' | 'original' = 'sanitized';
+let standaloneStep = 0;
+
+/** Resolver for the confirmation gate, set while the dialog is open. */
+let pendingConfirm: ((approved: boolean) => void) | null = null;
 
 /* ------------------------------------------------------------------ *
  * Element handles
@@ -35,8 +43,14 @@ const ui = {
   status: $('status'),
   task: $<HTMLInputElement>('task'),
   analyze: $<HTMLButtonElement>('analyze'),
+  run: $<HTMLButtonElement>('run'),
+  stop: $<HTMLButtonElement>('stop'),
   clear: $<HTMLButtonElement>('clear'),
   error: $('error'),
+  confirm: $('confirm'),
+  confirmQuestion: $('confirm-question'),
+  confirmYes: $<HTMLButtonElement>('confirm-yes'),
+  confirmNo: $<HTMLButtonElement>('confirm-no'),
   tabSanitized: $<HTMLButtonElement>('tab-sanitized'),
   tabOriginal: $<HTMLButtonElement>('tab-original'),
   preview: $('preview'),
@@ -45,6 +59,7 @@ const ui = {
   statArea: $('stat-area'),
   statLevel: $('stat-level'),
   statVault: $('stat-vault'),
+  plannerNote: $('planner-note'),
   egress: $('egress'),
   egressDetail: $('egress-detail'),
   detections: $('detections'),
@@ -54,6 +69,9 @@ const ui = {
   profile: $('profile'),
   profileDemo: $<HTMLButtonElement>('profile-demo'),
   log: $('log'),
+  serverUrl: $<HTMLInputElement>('server-url'),
+  checkServer: $<HTMLButtonElement>('check-server'),
+  serverStatus: $('server-status'),
 };
 
 /* ------------------------------------------------------------------ *
@@ -73,7 +91,7 @@ function log(message: string, kind: 'info' | 'err' = 'info'): void {
   const time = new Date().toLocaleTimeString([], { hour12: false });
   li.innerHTML = `<b>${time}</b> ${escapeHtml(message)}`;
   ui.log.prepend(li);
-  while (ui.log.children.length > 40) ui.log.lastElementChild?.remove();
+  while (ui.log.children.length > 60) ui.log.lastElementChild?.remove();
 }
 
 function showError(message: string | null): void {
@@ -89,11 +107,38 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
+function setRunning(running: boolean): void {
+  ui.run.disabled = running;
+  ui.analyze.disabled = running;
+  ui.stop.disabled = !running;
+}
+
+/* ------------------------------------------------------------------ *
+ * Confirmation gate
+ * ------------------------------------------------------------------ */
+
+function askConfirmation(question: string): Promise<boolean> {
+  ui.confirmQuestion.textContent = question;
+  ui.confirm.hidden = false;
+  setStatus('busy', 'waiting for you');
+  return new Promise((resolve) => {
+    pendingConfirm = (approved) => {
+      ui.confirm.hidden = true;
+      pendingConfirm = null;
+      resolve(approved);
+    };
+  });
+}
+
+ui.confirmYes.addEventListener('click', () => pendingConfirm?.(true));
+ui.confirmNo.addEventListener('click', () => pendingConfirm?.(false));
+
 /* ------------------------------------------------------------------ *
  * Profile
  * ------------------------------------------------------------------ */
 
 const PROFILE_STORAGE_KEY = 'privagent.profile';
+const SERVER_STORAGE_KEY = 'privagent.serverUrl';
 
 function buildProfileForm(): void {
   ui.profile.innerHTML = '';
@@ -143,6 +188,17 @@ async function restoreProfile(): Promise<void> {
     }
   } catch {
     /* nothing stored */
+  }
+}
+
+/** The server URL is not PII, so local storage is fine for it. */
+async function restoreServerUrl(): Promise<void> {
+  try {
+    const stored = await browser.storage?.local?.get(SERVER_STORAGE_KEY);
+    const url = stored?.[SERVER_STORAGE_KEY] as string | undefined;
+    if (url) ui.serverUrl.value = url;
+  } catch {
+    /* keep the default */
   }
 }
 
@@ -197,7 +253,6 @@ const TIMING_LABELS: Partial<Record<keyof StageTimings, string>> = {
   network: 'network',
   server: 'server',
   execute: 'execute',
-  total: 'total',
 };
 
 function renderTimings(timings: StageTimings): void {
@@ -220,11 +275,10 @@ function renderTimings(timings: StageTimings): void {
     ui.timings.append(li);
   }
 
-  if (timings.total !== undefined) {
-    const li = document.createElement('li');
-    li.innerHTML = `<span><b>total</b></span><span class="track"></span><span class="ms"><b>${timings.total} ms</b></span>`;
-    ui.timings.append(li);
-  }
+  const wall = entries.reduce((sum, [, ms]) => sum + ms, 0);
+  const li = document.createElement('li');
+  li.innerHTML = `<span><b>total</b></span><span class="track"></span><span class="ms"><b>${Math.round(wall * 10) / 10} ms</b></span>`;
+  ui.timings.append(li);
 }
 
 /** The payload, with the screenshot summarised rather than inlined. */
@@ -258,12 +312,11 @@ function updateVaultStat(): void {
 
 function renderOutput(output: PipelineOutput): void {
   lastOutput = output;
-
+  originalDataUrl = output.originalDataUrl ?? '';
   ui.statDetections.textContent = String(output.detections.length);
   ui.statArea.textContent = `${Math.round(output.areaRatio * 100)}%`;
   ui.statLevel.textContent = `L${output.disclosureLevel}`;
   updateVaultStat();
-
   renderDetections(output.detections);
   renderTimings(output.timings);
   renderPayload(output.request);
@@ -272,43 +325,24 @@ function renderOutput(output: PipelineOutput): void {
 }
 
 /* ------------------------------------------------------------------ *
- * Main action
+ * Actions
  * ------------------------------------------------------------------ */
 
+function makeAgent(): Agent {
+  return new Agent(vault, { serverUrl: ui.serverUrl.value.trim(), maxSteps: 12 });
+}
+
+/** Perceive and sanitize only. Nothing is sent anywhere. */
 async function analyze(): Promise<void> {
-  ui.analyze.disabled = true;
+  setRunning(true);
   showError(null);
   setStatus('busy', 'reading page…');
 
   try {
-    // The vault's values go with the request so the content script can locate the
-    // user's own name and address on screen and give them a redaction box, not
-    // just a token in the JSON (docs/DECISIONS.md).
-    const perceived = await sendToBackground<PerceiveResult>({
-      kind: 'perceive',
-      knownValues: vault.needles(),
-    });
-    originalDataUrl = perceived.imageDataUrl;
-
-    const image = await loadImage(perceived.imageDataUrl);
-    setStatus('busy', 'redacting…');
-
-    const output = runPipeline({
-      snapshot: perceived.snapshot,
-      image,
-      imageWidth: image.naturalWidth,
-      imageHeight: image.naturalHeight,
-      vault,
-      sessionId,
-      task: ui.task.value.trim() || 'Describe this page',
-      step: step++,
-      history: [],
-    });
-
-    // Merge the capture/snapshot timings from the background into the panel's own.
-    output.timings.capture = perceived.timings.capture;
-    output.timings.snapshot = perceived.timings.snapshot;
-
+    const output = await makeAgent().perceiveOnly(
+      ui.task.value.trim() || 'Describe this page',
+      standaloneStep++,
+    );
     renderOutput(output);
 
     if (output.egress.ok) {
@@ -327,7 +361,58 @@ async function analyze(): Promise<void> {
     showError(message);
     log(message, 'err');
   } finally {
-    ui.analyze.disabled = false;
+    setRunning(false);
+  }
+}
+
+/** The full agent loop. */
+async function run(): Promise<void> {
+  const task = ui.task.value.trim();
+  if (!task) {
+    showError('Type a task first, for example: fill this form with my profile and stop before submitting.');
+    return;
+  }
+
+  setRunning(true);
+  showError(null);
+  agent = makeAgent();
+  log(`Task: ${task}`);
+
+  await agent.run(task, {
+    onStatus: setStatus,
+    onLog: log,
+    onPerceived: renderOutput,
+    onStep: (report: StepReport) => {
+      renderTimings(report.output.timings);
+      if (report.response.planner) {
+        ui.plannerNote.hidden = false;
+        ui.plannerNote.textContent =
+          report.response.planner === 'vlm'
+            ? 'Decided by the server-side VLM.'
+            : 'Decided by the server’s deterministic planner (no VLM endpoint configured).';
+      }
+      if (report.result?.ok) log(`✓ ${describeAction(report.response)}`);
+    },
+    confirm: askConfirmation,
+  });
+
+  setRunning(false);
+  agent = null;
+}
+
+async function checkServer(): Promise<void> {
+  const url = ui.serverUrl.value.trim().replace(/\/$/, '');
+  ui.serverStatus.textContent = 'checking…';
+  try {
+    const response = await fetch(`${url}/health`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = (await response.json()) as { planner?: string; vlm_model?: string | null };
+    ui.serverStatus.textContent = body.vlm_model
+      ? `connected · VLM: ${body.vlm_model}`
+      : `connected · ${body.planner ?? 'unknown'} planner (no VLM configured)`;
+    await browser.storage?.local?.set({ [SERVER_STORAGE_KEY]: url });
+  } catch (error) {
+    ui.serverStatus.textContent = `unreachable — ${error instanceof Error ? error.message : error}`;
   }
 }
 
@@ -336,12 +421,24 @@ async function analyze(): Promise<void> {
  * ------------------------------------------------------------------ */
 
 ui.analyze.addEventListener('click', () => void analyze());
+ui.run.addEventListener('click', () => void run());
+ui.stop.addEventListener('click', () => {
+  agent?.stop();
+  pendingConfirm?.(false);
+  log('Stop requested.');
+});
+ui.checkServer.addEventListener('click', () => void checkServer());
 ui.tabSanitized.addEventListener('click', () => setPreviewMode('sanitized'));
 ui.tabOriginal.addEventListener('click', () => setPreviewMode('original'));
 
+ui.task.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') void run();
+});
+
 ui.clear.addEventListener('click', () => {
+  agent?.stop();
   vault.clearSession();
-  step = 0;
+  standaloneStep = 0;
   lastOutput = null;
   originalDataUrl = '';
   ui.previewImg.hidden = true;
@@ -355,6 +452,7 @@ ui.clear.addEventListener('click', () => {
   ui.statDetections.textContent = '–';
   ui.statArea.textContent = '–';
   ui.statLevel.textContent = '–';
+  ui.plannerNote.hidden = true;
   updateVaultStat();
   setStatus('idle', 'idle');
   log('Session cleared. Tokens and captured values dropped.');
@@ -371,7 +469,7 @@ ui.profileDemo.addEventListener('click', () => {
 });
 
 void (async () => {
-  await restoreProfile();
+  await Promise.all([restoreProfile(), restoreServerUrl()]);
   buildProfileForm();
   updateVaultStat();
   setStatus('idle', 'idle');

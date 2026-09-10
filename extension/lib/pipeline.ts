@@ -60,10 +60,20 @@ export interface PipelineOutput {
   detections: Detection[];
   redactedCanvas: HTMLCanvasElement;
   redactedDataUrl: string;
+  /**
+   * The unredacted capture, for the side panel's original ↔ sanitized toggle.
+   * Stays in the panel: it is never part of `request`, and never serialized.
+   */
+  originalDataUrl?: string;
   request: StepRequest;
   egress: EgressReport;
   disclosureLevel: DisclosureLevel;
   areaRatio: number;
+  /**
+   * CSS pixels → sent-image pixels. Any coordinate the server returns is in image
+   * space, so divide by this before handing it to the page.
+   */
+  imageScale: number;
   timings: ReturnType<Stopwatch['finish']>;
 }
 
@@ -96,11 +106,12 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
   const rendered = renderRedacted(input.image, input.imageWidth, input.imageHeight, detections, {
     dpr: snapshot.dpr,
   });
-  // Set-of-Mark last, so a badge is never covered by a redaction box.
+  // Set-of-Mark last, so a badge is never covered by a redaction box. Uses the
+  // renderer's effective scale, which accounts for any downscale it applied.
   drawSetOfMarks(
     rendered.canvas,
     snapshot.elements.map((e) => ({ id: e.id, bbox: e.bbox })),
-    { dpr: snapshot.dpr },
+    { dpr: rendered.scale },
   );
   const redactedDataUrl = toJpegDataUrl(rendered.canvas);
   watch.end('redact');
@@ -131,9 +142,12 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
 
   if (disclosureLevel === 2) {
     request.screen = {
+      // The rendered canvas, not the source capture: the renderer may have
+      // downscaled, and the server needs the dimensions of the image it receives
+      // to map any pixel coordinate it returns back onto the page.
       image_jpeg_b64: dataUrlToBase64(redactedDataUrl),
-      width: input.imageWidth,
-      height: input.imageHeight,
+      width: rendered.canvas.width,
+      height: rendered.canvas.height,
     };
   }
 
@@ -150,6 +164,7 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     egress,
     disclosureLevel,
     areaRatio,
+    imageScale: rendered.scale,
     timings: watch.finish(),
   };
 }

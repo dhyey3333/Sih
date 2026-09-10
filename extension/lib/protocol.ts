@@ -288,6 +288,11 @@ export interface StepResponse {
   summary?: string;
   reason?: string;
   confidence?: number;
+  /**
+   * Which path produced this action. Shown in the UI so a rule-based fallback is
+   * never mistaken for the model reasoning.
+   */
+  planner?: 'vlm' | 'rule-based';
   /** Server-side timing, for the full latency breakdown. */
   timings?: Record<string, number>;
 }

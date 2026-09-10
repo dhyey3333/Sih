@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>New application — National Scholarship Portal</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!--
+      The agent demo. An EMPTY form, so the task "fill this with my profile and
+      stop before submitting" has something to do.
+
+      kyc.html is the privacy demo: pre-filled, so redaction has something to hide.
+      This page is the automation demo. Between them they cover both halves of the
+      problem statement.
+
+      Field conventions are mixed on purpose — autocomplete on some, only a
+      snake_case name on others, only a placeholder on one — so what the judges see
+      is the DOM layer generalising, not a page built to suit it.
+    -->
+    <p class="fake-banner">
+      DEMO PAGE — the agent fills this from your locally stored profile. Submission is disabled.
+    </p>
+
+    <header class="gov-header">
+      <div class="emblem">NS</div>
+      <div>
+        <h1>National Scholarship Portal</h1>
+        <p>New application · Step 2 of 4</p>
+      </div>
+    </header>
+
+    <nav>
+      <a href="./index.html">Home</a>
+      <a href="./apply.html" aria-current="page">New application</a>
+      <a href="./kyc.html">Filled application</a>
+      <a href="./profile.html">My profile</a>
+      <a href="./bank.html">Bank details</a>
+    </nav>
+
+    <main>
+      <form id="application" action="#" method="post">
+        <section class="card">
+          <h2>Your details</h2>
+          <p>All fields marked * are required.</p>
+
+          <div class="grid">
+            <label>
+              <span class="lbl">Full name <span class="req">*</span></span>
+              <input type="text" id="full_name" name="full_name" autocomplete="name" required />
+            </label>
+
+            <label>
+              <span class="lbl">Email address <span class="req">*</span></span>
+              <input type="email" id="email" name="email" autocomplete="email" required />
+            </label>
+
+            <label>
+              <span class="lbl">Mobile number <span class="req">*</span></span>
+              <input type="tel" id="mobile" name="mobile_no" autocomplete="tel" required />
+            </label>
+
+            <label>
+              <span class="lbl">Date of birth <span class="req">*</span></span>
+              <input type="text" id="dob" name="date_of_birth" placeholder="DD/MM/YYYY" required />
+            </label>
+
+            <!-- Only the snake_case name identifies this one. -->
+            <label>
+              <span class="lbl">Aadhaar number <span class="req">*</span></span>
+              <input type="text" name="aadhaar_no" maxlength="14" required />
+            </label>
+
+            <label>
+              <span class="lbl">PAN</span>
+              <input type="text" name="panNumber" maxlength="10" />
+            </label>
+
+            <label class="full">
+              <span class="lbl">Residential address <span class="req">*</span></span>
+              <textarea name="address" rows="2" autocomplete="street-address" required></textarea>
+            </label>
+
+            <label>
+              <span class="lbl">PIN code <span class="req">*</span></span>
+              <input type="text" name="pincode" autocomplete="postal-code" maxlength="6" required />
+            </label>
+
+            <label>
+              <span class="lbl">UPI ID for disbursal</span>
+              <input type="text" name="vpa" placeholder="yourname@bank" />
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Course</h2>
+          <div class="grid">
+            <!-- Not personal data: the agent should leave these to the user. -->
+            <label>
+              <span class="lbl">Course applied for</span>
+              <select name="course">
+                <option selected>B.Tech Computer Science</option>
+                <option>B.Tech Electrical</option>
+                <option>B.Sc Mathematics</option>
+              </select>
+            </label>
+
+            <label>
+              <span class="lbl">Referral code</span>
+              <input type="text" name="referral_code" placeholder="Optional" />
+            </label>
+          </div>
+
+          <label class="checkline">
+            <input type="checkbox" name="declaration" />
+            <span>I declare that the information furnished above is true.</span>
+          </label>
+
+          <div class="actions">
+            <button type="button" id="save-draft">Save draft</button>
+            <button type="submit" class="primary" id="submit-application">Submit application</button>
+          </div>
+        </section>
+      </form>
+    </main>
+
+    <footer>Synthetic demo for SIH — no real personal data is present on this page.</footer>
+
+    <script>
+      document.getElementById('application').addEventListener('submit', (event) => {
+        event.preventDefault();
+        alert('Demo page: submission is disabled.');
+      });
+    </script>
+  </body>
+</html>

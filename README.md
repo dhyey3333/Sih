@@ -53,22 +53,33 @@ A model can be wrong. The architecture is built so that being wrong is not enoug
 
 ## Where it stands
 
-M0–M2 are done and measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
+M0–M3 are done and measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
 [docs/PLAN.md](docs/PLAN.md) for the roadmap.
 
-**Measured on the demo site** (real browser, scored automatically against `data-pii` ground truth):
+**Privacy filter**, scored automatically in a real browser against `data-pii` ground truth:
 
 | | |
 |---|---|
 | PII detection precision | **1.000** (zero false positives, against deliberate decoys) |
 | PII detection recall | **0.976** over 42 DOM-reachable items |
 | Perception time | **2–20 ms per page**, no model loaded |
-| Bundle size | 66 KB |
-| Tests | 159 passing |
 
-Not yet done: faces and the ID-card scan are **not** redacted — that needs the vision layer
-(M4). There is no server or agent loop yet (M3). Both are called out honestly rather than
-demoed with a placeholder.
+**End-to-end agent**, filling an empty scholarship form from the local profile:
+
+| | |
+|---|---|
+| Result | 9 fields filled from tokens alone, stopped before Submit |
+| Client pipeline | 216 ms (redact 193, tokenize 10, egress guard 10, detect+fuse 2) |
+| Network + server | 52 ms + 4.8 ms |
+| Payload | 42 KB, 1024×1280 |
+| Tests | 249 passing (187 extension, 62 server) |
+
+**Not done yet, stated plainly.** There is no vision layer, so on the pre-filled demo page the
+profile photo and the ID-card scan are still fully legible — the name, date of birth and Aadhaar
+number are readable *inside the image*, where no DOM inspection can reach them. That is exactly
+what M4 is for, and it is the most visible remaining gap. The end-to-end run above used the
+server's deterministic planner; the VLM path has unit tests but has not yet been exercised
+against a live model.
 
 ## Try it
 
@@ -80,6 +91,12 @@ Serve the demo site:
 
 ```bash
 python3 -m http.server 5173 --directory demo-site
+```
+
+Start the server (no API key needed — it falls back to a deterministic planner):
+
+```bash
+cd server && uv sync --dev && uv run uvicorn app.main:app --reload --port 8000
 ```
 
 Run the extension in Chrome (opens a browser with it loaded):
@@ -94,9 +111,15 @@ cd extension && npm run dev
 cd extension && npm run dev:firefox
 ```
 
-Then open `http://localhost:5173/kyc.html`, open the PrivAgent side panel, press
-**Load demo profile**, and press **Analyze page**. Toggle between *Original* and
-*What the server sees*, and open the payload inspector.
+Then, in the side panel, press **Load demo profile** and:
+
+- **The privacy demo** — open `http://localhost:5173/kyc.html` and press **Analyze page**.
+  Nothing is sent. Toggle *Original* ↔ *What the server sees*, and open the payload inspector.
+- **The agent demo** — open `http://localhost:5173/apply.html`, type
+  *"fill this form with my profile and stop before submitting"*, and press **Run task**.
+
+To use a real model, copy `server/.env.example` to `server/.env` and point `VLM_BASE_URL` at any
+OpenAI-compatible endpoint (vLLM, Ollama, or a hosted open-weights model).
 
 It works on any site, not just the demo pages — the DOM layer is generic, not per-site rules.
 

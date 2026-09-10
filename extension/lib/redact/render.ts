@@ -22,6 +22,16 @@ import { REDACTION_STYLE } from '../protocol';
 export interface RenderOptions {
   /** devicePixelRatio of the captured tab: CSS rects × dpr = image pixels. */
   dpr: number;
+  /**
+   * Cap on the long edge of the rendered image, in pixels.
+   *
+   * A 1280×1600 viewport at dpr 2 is an 8-megapixel canvas, and JPEG-encoding one
+   * costs ~490 ms — by far the most expensive step in the pipeline, and it would
+   * dominate end-to-end latency. Capping the long edge at 1280 cuts that to tens
+   * of milliseconds, shrinks the upload, and costs nothing in usefulness: VLMs
+   * downscale to roughly this size internally anyway. Set to 0 to disable.
+   */
+  maxDimension?: number;
   /** Mosaic cell size in CSS pixels. 12+ is "heavy" per the plan. */
   pixelBlock?: number;
   /** Draw the `⟦TOKEN⟧` label on each box. */
@@ -32,6 +42,7 @@ export interface RenderOptions {
 }
 
 const DEFAULTS = {
+  maxDimension: 1280,
   pixelBlock: 14,
   labels: true,
   fill: '#0b0d12',
@@ -53,12 +64,12 @@ function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   return ctx;
 }
 
-/** CSS-pixel rect → integer device-pixel rect, clamped to the image. */
-function toDeviceRect(rect: Rect, dpr: number, width: number, height: number): Rect {
-  const x = Math.max(0, Math.floor(rect.x * dpr));
-  const y = Math.max(0, Math.floor(rect.y * dpr));
-  const x2 = Math.min(width, Math.ceil((rect.x + rect.w) * dpr));
-  const y2 = Math.min(height, Math.ceil((rect.y + rect.h) * dpr));
+/** CSS-pixel rect → integer output-pixel rect, clamped to the image. */
+function toDeviceRect(rect: Rect, scale: number, width: number, height: number): Rect {
+  const x = Math.max(0, Math.floor(rect.x * scale));
+  const y = Math.max(0, Math.floor(rect.y * scale));
+  const x2 = Math.min(width, Math.ceil((rect.x + rect.w) * scale));
+  const y2 = Math.min(height, Math.ceil((rect.y + rect.h) * scale));
   return { x, y, w: Math.max(0, x2 - x), h: Math.max(0, y2 - y) };
 }
 
@@ -71,9 +82,10 @@ function drawPixelated(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
   r: Rect,
+  scale: number,
   opts: Required<RenderOptions>,
 ): void {
-  const block = Math.max(2, Math.round(opts.pixelBlock * opts.dpr));
+  const block = Math.max(2, Math.round(opts.pixelBlock * scale));
   const cols = Math.max(1, Math.round(r.w / block));
   const rows = Math.max(1, Math.round(r.h / block));
 
@@ -93,11 +105,12 @@ function drawLabel(
   ctx: CanvasRenderingContext2D,
   r: Rect,
   token: string,
+  scale: number,
   opts: Required<RenderOptions>,
 ): void {
   // Scale the label to the box, then bail out if it still won't fit — a label
   // spilling outside its box would cover neighbouring content.
-  const fontSize = Math.min(13 * opts.dpr, Math.max(9 * opts.dpr, r.h * 0.62));
+  const fontSize = Math.min(13 * scale, Math.max(9 * scale, r.h * 0.62));
   ctx.font = `600 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   ctx.textBaseline = 'middle';
 
@@ -110,8 +123,13 @@ function drawLabel(
 
 export interface RenderResult {
   canvas: HTMLCanvasElement;
-  /** Boxes actually painted, in device pixels — used by the eval mask metric. */
+  /** Boxes actually painted, in output pixels — used by the eval mask metric. */
   painted: Array<{ token: string; rect: Rect; style: 'block' | 'pixelate' }>;
+  /**
+   * CSS pixels → output pixels. Equals `dpr` when no downscale was applied.
+   * Anything else drawn onto this canvas afterwards (Set-of-Mark) must use it.
+   */
+  scale: number;
   durationMs: number;
 }
 
@@ -129,33 +147,50 @@ export function renderRedacted(
   const startedAt = performance.now();
   const opts = { ...DEFAULTS, ...options } as Required<RenderOptions>;
 
-  const canvas = createCanvas(width, height);
+  // A capture can legitimately come back empty — a minimized window, a tab that
+  // was backgrounded mid-capture. Fail with something the UI can explain rather
+  // than an "image argument … width or height of 0" from deep inside canvas.
+  if (!(width > 0) || !(height > 0)) {
+    throw new Error(
+      `Screenshot came back empty (${width}×${height}). The tab may be minimized or hidden.`,
+    );
+  }
+
+  // Downscale on the way in, so every subsequent operation — fill, pixelate,
+  // label, encode — works on the smaller surface.
+  const downscale =
+    opts.maxDimension > 0 ? Math.min(1, opts.maxDimension / Math.max(width, height)) : 1;
+  const outWidth = Math.max(1, Math.round(width * downscale));
+  const outHeight = Math.max(1, Math.round(height * downscale));
+  const scale = opts.dpr * downscale;
+
+  const canvas = createCanvas(outWidth, outHeight);
   const ctx = context2d(canvas);
-  ctx.drawImage(source, 0, 0, width, height);
+  ctx.drawImage(source, 0, 0, outWidth, outHeight);
 
   const painted: RenderResult['painted'] = [];
 
   for (const detection of detections) {
-    const rect = toDeviceRect(detection.bbox, opts.dpr, width, height);
+    const rect = toDeviceRect(detection.bbox, scale, outWidth, outHeight);
     if (rect.w <= 0 || rect.h <= 0) continue;
 
     const style = REDACTION_STYLE[detection.type];
     if (style === 'pixelate') {
-      drawPixelated(ctx, canvas, rect, opts);
+      drawPixelated(ctx, canvas, rect, scale, opts);
     } else {
       drawBlock(ctx, rect, opts);
     }
 
     // A thin outline makes the redaction obvious on stage and in the eval images.
     ctx.strokeStyle = opts.stroke;
-    ctx.lineWidth = Math.max(1, Math.round(opts.dpr));
+    ctx.lineWidth = Math.max(1, Math.round(scale));
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
 
-    if (opts.labels) drawLabel(ctx, rect, detection.token, opts);
+    if (opts.labels) drawLabel(ctx, rect, detection.token, scale, opts);
     painted.push({ token: detection.token, rect, style });
   }
 
-  return { canvas, painted, durationMs: performance.now() - startedAt };
+  return { canvas, painted, scale, durationMs: performance.now() - startedAt };
 }
 
 export interface MarkOptions {

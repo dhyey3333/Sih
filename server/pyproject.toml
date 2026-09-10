@@ -1,0 +1,24 @@
+[project]
+name = "privagent-server"
+version = "0.1.0"
+description = "Server-side agent brain for PrivAgent. Receives sanitized context, returns one UI action."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    # The VLM client is a plain OpenAI-compatible POST. httpx rather than the
+    # `openai` package keeps the dependency list short and the provider swappable
+    # (vLLM, Ollama, or any hosted open-weights endpoint) — see docs/DECISIONS.md D10.
+    "httpx>=0.27",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
