@@ -11,6 +11,12 @@ extension/.wxt/
 dist/
 build/
 
+# onnxruntime-web's WASM binary: 27 MB, and byte-identical to what npm installs.
+# `npm run assets` (also run on postinstall) copies it back from node_modules.
+# The 227 KB YuNet model in public/models/ IS committed, so a fresh clone can run
+# the demo with no network.
+extension/public/ort/
+
 # Python
 .venv/
 venv/

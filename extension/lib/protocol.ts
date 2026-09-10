@@ -109,8 +109,14 @@ export const REDACTION_STYLE: Record<PiiType, RedactionStyle> = {
   FACE: 'pixelate',
 };
 
-/** Where a detection came from. Shown in the UI so judges can see the split. */
-export type DetectionSource = 'dom-field' | 'dom-text' | 'vision' | 'ocr';
+/**
+ * Where a detection came from. Shown in the UI so the split between the cheap
+ * deterministic layers and the model is visible rather than asserted.
+ *
+ * `dom-image` is a DOM signal *about* an image — its alt text, class or filename
+ * says "avatar" or "aadhaar-scan". It cannot see the pixels, so it is not `vision`.
+ */
+export type DetectionSource = 'dom-field' | 'dom-text' | 'dom-image' | 'vision' | 'ocr';
 
 /* ------------------------------------------------------------------ *
  * Page capture (internal — carries real values, never leaves the device)
@@ -323,6 +329,8 @@ export const IRREVERSIBLE_HINTS = [
 export interface StageTimings {
   capture?: number;
   snapshot?: number;
+  /** On-device model inference (vision layer). */
+  vision?: number;
   detect?: number;
   fuse?: number;
   redact?: number;

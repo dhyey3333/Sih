@@ -16,7 +16,8 @@
     "compile": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "postinstall": "wxt prepare"
+    "assets": "node scripts/fetch-assets.mjs",
+    "postinstall": "wxt prepare && node scripts/fetch-assets.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
@@ -24,5 +25,8 @@
     "vitest": "^3.2.4",
     "web-ext": "^10.5.0",
     "wxt": "^0.21.3"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.29.0"
   }
 }

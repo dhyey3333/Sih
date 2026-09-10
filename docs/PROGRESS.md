@@ -8,8 +8,8 @@ Status board. Updated at the end of every milestone (CLAUDE.md).
 | M1 Skeleton | ✅ WXT extension building for Chrome + Firefox |
 | M2 DOM privacy layer | ✅ validators, vault, sanitizer, fusion, redaction, egress guard, side panel |
 | M3 Agent loop | ✅ FastAPI server, provider-agnostic VLM, action executor, confirm-before-submit |
-| M4 Vision layer v1 | ⬜ next — face detector + OCR via onnxruntime-web |
-| M5 Custom detector | ⬜ synthetic data → train → ONNX → integrate |
+| M4 Vision layer v1 | ✅ YuNet face detection via onnxruntime-web (WebGPU → WASM), image-region flagging, change detection |
+| M5 Custom detector | ⬜ next — synthetic data → train → ONNX → integrate; OCR on image regions |
 | M6 Eval harness | ⬜ one command rebuilds every number |
 | M7 Polish | ⬜ disclosure levels, latency, Firefox pass, demo script, backup video |
 
@@ -196,6 +196,123 @@ client sends only a recent history window. It no longer asserts a count (D12).
   deterministic planner. The VLM path has unit tests but needs a real model booked
   against it before the demo.
 - `eval/` is still manual (M6).
+
+---
+
+## 2026-09-10 — M4 Vision layer v1
+
+### Built
+
+- `lib/vision/runtime.ts` — onnxruntime-web setup. WebGPU first, WASM fallback, WASM
+  binary bundled (MV3 forbids remote code), `numThreads = 1` (no SharedArrayBuffer in
+  extension pages), session created once and released on `pagehide`.
+- `lib/vision/yunet.ts` — letterbox pre-processing (BGR, 0–255, NCHW — an OpenCV model,
+  not an ImageNet one), three-stride decode, NMS.
+- `lib/vision/change.ts` — 48×48 greyscale signature; skips the model when the screen
+  has not moved.
+- `lib/vision/index.ts` — two-pass detection plus DOM image-region flagging.
+- `scripts/fetch-assets.mjs` — stages the 27 MB WASM from `node_modules` (gitignored);
+  the 227 KB model is committed so a fresh clone runs offline.
+- Side panel — vision on/off toggle and a live status line: backend, model size, load
+  time, inference time, faces found, frames skipped.
+
+### Verification
+
+- `npm test` — **204 tests** (9 files), including 14 covering the coordinate math.
+- `uv run pytest` — 62. **266 across the repo.**
+- Typecheck clean; Chrome and Firefox both build at **28.52 MB**, exactly one `.wasm`.
+
+### Measured — the model
+
+MacBook, WebGPU adapter available, 1280×900 frame, steady state after warm-up.
+
+| Backend | Session load | Inference p50 | Range |
+|---|---|---|---|
+| WebGPU | 312 ms | **50 ms** | 44–69 ms |
+| WASM | 1,497 ms | **181 ms** | 158–315 ms |
+
+Model 227 KB. WebGPU is 3.6× faster; the WASM figure is the real one for Firefox,
+which has no WebGPU today.
+
+### Measured — recall vs face size
+
+Real photographic portrait (public-domain, Wikimedia), drawn at four on-screen sizes.
+
+| Image width | Whole-frame pass | + close-up pass |
+|---|---|---|
+| 420 px | 0.905 | 0.905 |
+| 200 px | 0.832 | 0.832 |
+| 96 px | **missed** | **0.898** |
+| 48 px | **missed** | **0.694** |
+
+The 96 px miss was the important finding: that is exactly the size of a profile
+avatar. Letterboxing the whole frame into 640×640 leaves a small face with almost no
+pixels. Re-running on the image's own DOM rect upscales it instead (D14).
+
+Geometry verified independently at dpr 2 with two images at different positions and
+scales — both boxes landed inside their source images.
+
+### Measured — the M4 acceptance criterion
+
+`kyc.html`, demo profile loaded, 1280×1600 viewport:
+
+| | Detections |
+|---|---|
+| DOM + text layers only | 16 |
+| with the vision layer | **18** |
+
+The two new ones are precisely the gap M3 closed with an apology:
+
+- `⟦FACE_1⟧` over the profile photo — found by the model *and* the image hint
+  independently (`detail: "avatar-like+vision"`), fused into one box, **pixelated**.
+- `⟦ID_DOCUMENT_1⟧` over the ID-card scan — **blacked out**.
+
+The card's name, date of birth and Aadhaar number were fully legible in the M3
+screenshot. They are not any more.
+
+### Two bugs the build caught, and one the measurement did
+
+1. **52 MB of wasm for one model.** ORT ships four different WASM binaries and each
+   JS entry references exactly one; `onnxruntime-web` needs *jsep*, while
+   `onnxruntime-web/webgpu` needs *asyncify*. I staged one and imported the other.
+2. **A duplicated 27 MB binary.** The default ORT entry is the "bundle" build, so Vite
+   emitted its own hashed copy alongside the staged one — 54 MB total. Aliasing to the
+   non-bundled build fixed it; the alias then had to be anchored, because the
+   replacement starts with the package name and matched its own output until the build
+   died. Now 28.5 MB with exactly one `.wasm`.
+3. **Avatars were invisible to the detector** — see the table above.
+
+### Not done yet
+
+- **No OCR.** Text rendered inside an image is detected as a *region* (the whole card
+  is redacted) but is not read, so PII inside an unflagged image — a screenshot of a
+  bank statement, say — is not individually tokenized. That is M5.
+- The custom multi-class detector (`password_field`, `payment_card`, `qr_code`,
+  canvas-app widgets) is M5; today the vision layer only knows faces.
+- Image-region flagging relies on alt text, class names and filenames. An ID card
+  named `IMG_2043.jpg` is caught only if a face is visible in it.
+- Still no live VLM run, and `eval/` is still manual (M6).
+
+### Suggested commit
+
+```
+feat: on-device vision layer — YuNet face detection via WebGPU
+
+M4. onnxruntime-web with the WASM binary bundled for MV3, WebGPU preferred and
+WASM as the real fallback for Firefox. YuNet (227 KB) finds faces in the capture;
+a second close-up pass on small image regions recovers avatars the whole-frame
+pass cannot see. DOM image hints flag ID scans and signatures. A 48x48 greyscale
+signature skips the model when the screen has not changed.
+
+Faces are pixelated, ID documents blacked out — the two things left legible at
+the end of M3. On the demo page detections go 16 -> 18, and the ID card's name,
+DOB and Aadhaar number are no longer readable.
+
+WebGPU 50 ms p50 / WASM 181 ms, 227 KB model, 28.5 MB packed. 204 extension
+tests, 62 server tests, both targets build.
+```
+
+---
 
 ```
 feat: agent loop — FastAPI server, provider-agnostic VLM, confirm-before-submit

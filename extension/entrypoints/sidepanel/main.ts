@@ -18,8 +18,17 @@ import type { Detection } from '../../lib/protocol';
 import type { PipelineOutput } from '../../lib/pipeline';
 import { describeIncidents } from '../../lib/pii/egress';
 import { PROFILE_KEYS, Vault, type ProfileKey } from '../../lib/pii/vault';
+import { VisionLayer } from '../../lib/vision';
 
 const vault = new Vault();
+
+/**
+ * One vision layer for the whole panel session. Compiling the ONNX graph costs
+ * ~100 ms, and the side panel only lives while it is open, so the session is
+ * created once here and released on `pagehide` (CLAUDE.md).
+ */
+const vision = new VisionLayer();
+
 let agent: Agent | null = null;
 let lastOutput: PipelineOutput | null = null;
 let originalDataUrl = '';
@@ -60,6 +69,8 @@ const ui = {
   statLevel: $('stat-level'),
   statVault: $('stat-vault'),
   plannerNote: $('planner-note'),
+  visionToggle: $<HTMLInputElement>('vision-toggle'),
+  visionStatus: $('vision-status'),
   egress: $('egress'),
   egressDetail: $('egress-detail'),
   detections: $('detections'),
@@ -310,6 +321,40 @@ function updateVaultStat(): void {
   ui.statVault.textContent = String(vault.size);
 }
 
+/**
+ * The resource story, stated in the UI rather than in a slide: which backend the
+ * model actually got, how big it is, how long it took to compile, and how long
+ * this frame took — including when it was skipped because nothing changed.
+ */
+function renderVisionStatus(output: PipelineOutput): void {
+  const stats = output.visionStats;
+  if (!stats) return;
+
+  if (stats.skipped && stats.skipReason === 'vision layer disabled') {
+    ui.visionStatus.textContent = 'off — DOM and text layers only';
+    return;
+  }
+
+  const parts: string[] = [];
+  if (stats.session) {
+    parts.push(
+      `${stats.session.backend.toUpperCase()} · ` +
+        `${Math.round(stats.session.modelBytes / 1024)} KB model · ` +
+        `${stats.session.loadMs} ms to load`,
+    );
+  }
+
+  if (stats.skipped) {
+    parts.push(`frame skipped (${stats.skipReason}, Δ${stats.changeDiff ?? 0})`);
+  } else {
+    parts.push(`${stats.inferenceMs} ms inference · ${stats.facesFound} face(s)`);
+  }
+  if (stats.imageRegions > 0) parts.push(`${stats.imageRegions} flagged image region(s)`);
+  if (stats.session?.webgpuError) parts.push(`WebGPU unavailable: ${stats.session.webgpuError}`);
+
+  ui.visionStatus.textContent = parts.join(' · ');
+}
+
 function renderOutput(output: PipelineOutput): void {
   lastOutput = output;
   originalDataUrl = output.originalDataUrl ?? '';
@@ -321,6 +366,7 @@ function renderOutput(output: PipelineOutput): void {
   renderTimings(output.timings);
   renderPayload(output.request);
   renderEgress(output);
+  renderVisionStatus(output);
   setPreviewMode(previewMode);
 }
 
@@ -329,7 +375,15 @@ function renderOutput(output: PipelineOutput): void {
  * ------------------------------------------------------------------ */
 
 function makeAgent(): Agent {
-  return new Agent(vault, { serverUrl: ui.serverUrl.value.trim(), maxSteps: 12 });
+  return new Agent(
+    vault,
+    {
+      serverUrl: ui.serverUrl.value.trim(),
+      maxSteps: 12,
+      vision: ui.visionToggle.checked,
+    },
+    vision,
+  );
 }
 
 /** Perceive and sanitize only. Nothing is sent anywhere. */
@@ -466,6 +520,19 @@ ui.profileDemo.addEventListener('click', () => {
   void persistProfile();
   updateVaultStat();
   log('Loaded the demo profile (fake data).');
+});
+
+ui.visionToggle.addEventListener('change', () => {
+  vision.enabled = ui.visionToggle.checked;
+  ui.visionStatus.textContent = ui.visionToggle.checked
+    ? 'on — loads on first use'
+    : 'off — DOM and text layers only';
+  log(`Vision layer ${ui.visionToggle.checked ? 'enabled' : 'disabled'}.`);
+});
+
+// The panel is torn down whenever it closes; release the WASM heap with it.
+window.addEventListener('pagehide', () => {
+  void vision.dispose();
 });
 
 void (async () => {

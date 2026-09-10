@@ -53,7 +53,7 @@ A model can be wrong. The architecture is built so that being wrong is not enoug
 
 ## Where it stands
 
-M0–M3 are done and measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
+M0–M4 are done and measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
 [docs/PLAN.md](docs/PLAN.md) for the roadmap.
 
 **Privacy filter**, scored automatically in a real browser against `data-pii` ground truth:
@@ -72,14 +72,24 @@ M0–M3 are done and measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the 
 | Client pipeline | 216 ms (redact 193, tokenize 10, egress guard 10, detect+fuse 2) |
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
-| Tests | 249 passing (187 extension, 62 server) |
+| Tests | 266 passing (204 extension, 62 server) |
 
-**Not done yet, stated plainly.** There is no vision layer, so on the pre-filled demo page the
-profile photo and the ID-card scan are still fully legible — the name, date of birth and Aadhaar
-number are readable *inside the image*, where no DOM inspection can reach them. That is exactly
-what M4 is for, and it is the most visible remaining gap. The end-to-end run above used the
-server's deterministic planner; the VLM path has unit tests but has not yet been exercised
-against a live model.
+**On-device vision**, YuNet via onnxruntime-web:
+
+| | |
+|---|---|
+| Model | 227 KB |
+| Inference | **50 ms** p50 on WebGPU, **181 ms** on WASM (the Firefox path) |
+| Recall vs face size | 0.90 at 420 px, 0.83 at 200 px, **0.90 at 96 px** via a close-up pass |
+| Packed extension | 28.5 MB, one WASM binary |
+
+**Not done yet, stated plainly.** There is no OCR: text rendered *inside* an image is redacted
+as a whole region, but not read, so PII in an unflagged screenshot is not individually
+tokenized. The custom multi-class detector is M5, so the vision layer currently knows only
+faces. Image-region flagging leans on alt text, class names and filenames, which means an ID
+card named `IMG_2043.jpg` is caught only if a face is visible in it. And the end-to-end run
+above used the server's deterministic planner — the VLM path has unit tests but has not yet
+been exercised against a live model.
 
 ## Try it
 
@@ -115,6 +125,8 @@ Then, in the side panel, press **Load demo profile** and:
 
 - **The privacy demo** — open `http://localhost:5173/kyc.html` and press **Analyze page**.
   Nothing is sent. Toggle *Original* ↔ *What the server sees*, and open the payload inspector.
+  Untick **On-device vision layer** and analyze again: the profile photo and the ID-card scan
+  come back, which is the clearest way to show what the model is actually buying.
 - **The agent demo** — open `http://localhost:5173/apply.html`, type
   *"fill this form with my profile and stop before submitting"*, and press **Run task**.
 
@@ -129,6 +141,7 @@ It works on any site, not just the demo pages — the DOM layer is generic, not 
 |---|---|
 | `extension/` | WXT + TypeScript, MV3, builds for Chrome and Firefox |
 | `extension/lib/pii/` | validators, checksums, DOM heuristics, sanitizer, vault, egress guard |
+| `extension/lib/vision/` | onnxruntime-web runtime, YuNet, change detection |
 | `extension/lib/redact/` | box fusion and canvas rendering |
 | `extension/lib/eval/` | scoring against `data-pii` ground truth |
 | `server/` | FastAPI + provider-agnostic VLM client *(M3)* |
@@ -144,7 +157,8 @@ It works on any site, not just the demo pages — the DOM layer is generic, not 
 |---|---|
 | `npm run dev` / `dev:firefox` | run the extension |
 | `npm run build` / `build:firefox` / `build:all` | production builds |
-| `npm test` | 159 unit tests |
+| `npm test` | 204 unit tests |
+| `npm run assets` | restage the ORT WASM binary from node_modules |
 | `npm run compile` | typecheck |
 | `npm run build:domcheck` | standalone bundle for scoring a page |
 

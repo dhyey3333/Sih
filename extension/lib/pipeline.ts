@@ -28,6 +28,7 @@ import { guardPayload, type EgressReport } from './pii/egress';
 import { clampLabel, sanitizeText, sanitizeUrl } from './pii/sanitize';
 import type { Vault } from './pii/vault';
 import { fuseDetections, redactedAreaRatio } from './redact/fuse';
+import type { VisionStats } from './vision';
 import { dataUrlToBase64, drawSetOfMarks, renderRedacted, toJpegDataUrl } from './redact/render';
 
 /**
@@ -74,6 +75,8 @@ export interface PipelineOutput {
    * space, so divide by this before handing it to the page.
    */
   imageScale: number;
+  /** Set by the agent when the vision layer ran. Reported in the metrics panel. */
+  visionStats?: VisionStats;
   timings: ReturnType<Stopwatch['finish']>;
 }
 

@@ -1,9 +1,45 @@
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { defineConfig } from 'wxt';
+
+const require = createRequire(import.meta.url);
+
+/**
+ * Absolute path to ORT's non-bundled ESM build.
+ *
+ * Resolved through the package's own entry rather than hard-coded, but it has to be
+ * an absolute *file* path: `onnxruntime-web` does not export `./dist/*`, so an alias
+ * pointing at a subpath is unresolvable.
+ */
+const ORT_NON_BUNDLED = join(
+  // Resolves through the "require" condition to dist/ort.min.js, whose directory is
+  // what we actually want. `onnxruntime-web/package.json` is not exported either.
+  dirname(require.resolve('onnxruntime-web')),
+  'ort.min.mjs',
+);
 
 // https://wxt.dev/api/config.html
 export default defineConfig({
   targetBrowsers: ['chrome', 'firefox'],
   manifestVersion: 3,
+
+  vite: () => ({
+    resolve: {
+      alias: [
+        {
+          // ORT's default export is the "bundle" build, which inlines the wasm loader
+          // and makes Vite emit its own hashed copy of the 27 MB binary — on top of the
+          // one we stage in public/ort/. Point at the non-bundled build instead: it
+          // fetches both loader and binary from `ort.env.wasm.wasmPaths`, so exactly one
+          // copy ships. Verified by checking the build output for stray .wasm files.
+          //
+          // Anchored: the replacement would otherwise match its own output and recurse.
+          find: /^onnxruntime-web$/,
+          replacement: ORT_NON_BUNDLED,
+        },
+      ],
+    },
+  }),
 
   manifest: ({ browser }) => ({
     name: 'PrivAgent — privacy-preserving vision agent',

@@ -317,6 +317,32 @@ input[type="text"]:focus-visible {
   line-height: 1.2;
 }
 
+.vision {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg-inset);
+  border-radius: 7px;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.switch input {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+}
+
+.vision .hint {
+  margin-top: 3px;
+}
+
 .egress {
   display: flex;
   align-items: center;

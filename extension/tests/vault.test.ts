@@ -33,6 +33,25 @@ describe('tokenization', () => {
   });
 });
 
+describe('mintToken — labels for things with no text behind them', () => {
+  it('numbers from the same counter as tokenize', () => {
+    expect(vault.mintToken('FACE')).toBe('⟦FACE_1⟧');
+    expect(vault.mintToken('FACE')).toBe('⟦FACE_2⟧');
+  });
+
+  it('stores nothing, so resolve correctly refuses to substitute it', () => {
+    const token = vault.mintToken('FACE');
+    expect(vault.size).toBe(0);
+    expect(vault.resolve(token)).toBe(token);
+    expect(vault.hasUnresolvedTokens(token)).toBe(true);
+  });
+
+  it('does not collide with a real tokenized value of the same type', () => {
+    vault.tokenize('ID_DOCUMENT', 'scan-of-something');
+    expect(vault.mintToken('ID_DOCUMENT')).toBe('⟦ID_DOCUMENT_2⟧');
+  });
+});
+
 describe('profile', () => {
   it('exposes keys but never values', () => {
     vault.setProfile('EMAIL', FAKE.email);

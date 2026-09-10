@@ -134,6 +134,18 @@ export class Vault {
     return token;
   }
 
+  /**
+   * A token for something with no text value behind it — a detected face, an ID
+   * card scan. Numbered from the same counters as `tokenize`, so the redaction
+   * legend reads consistently, but nothing is stored: there is nothing to
+   * rehydrate, and `resolve` will correctly refuse to substitute it.
+   */
+  mintToken(type: PiiType): string {
+    const next = (this.counters.get(type) ?? 0) + 1;
+    this.counters.set(type, next);
+    return `⟦${type}_${next}⟧`;
+  }
+
   /** Look up a single token. Returns undefined for an unknown token. */
   valueOf(token: string): string | undefined {
     return this.entries.get(token)?.value;

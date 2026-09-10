@@ -194,3 +194,90 @@ payload to make a cosmetic number correct, the server stops asserting it and the
 which knows the true total, logs it.
 
 *(D10 applies from M3; recorded during M2 because it shaped the protocol.)*
+
+---
+
+## D13 — YuNet for face detection
+
+**Decision.** `face_detection_yunet_2023mar.onnx` from the OpenCV Zoo — **227 KB**.
+
+**Rejected.** face-api.js + TinyFaceDetector (what `reference/teammate` used), and a
+general-purpose detector fine-tuned for faces.
+
+**Why.** face-api.js is unmaintained and drags TensorFlow.js in alongside our
+onnxruntime-web — two inference runtimes in one extension, for one model. A general
+detector would be 10–40× the size for a job this specific. YuNet is purpose-built,
+is the model OpenCV itself ships, and at 227 KB it is smaller than most of the icons
+on a modern web page.
+
+**Measured** (MacBook, 1280×900 frame, steady state after warm-up):
+
+| Backend | Session load | Inference p50 | Range |
+|---|---|---|---|
+| WebGPU | 312 ms | **50 ms** | 44–69 ms |
+| WASM | 1,497 ms | **181 ms** | 158–315 ms |
+
+WebGPU is 3.6× faster, and the WASM number is not a footnote: Firefox has no WebGPU
+today, so 181 ms is the real figure on one of the two browsers we must support.
+
+---
+
+## D14 — A second, close-up pass on small images
+
+**Decision.** After the whole-frame pass, re-run the model on up to four *small*
+image regions (≤320 device px on the long edge) that no face was found in.
+
+**Why.** Measured, and it was a genuine hole. Letterboxing a 1280×900 frame into the
+model's 640×640 input halves everything — and on a retina capture it quarters it. A
+real photographic face was found in a 200 px image and **missed entirely at 96 px**,
+which is exactly what a profile avatar is. Cropping to the image's own DOM rect and
+letterboxing *that* upscales the face instead of shrinking it:
+
+| Image width | Whole-frame only | With close-up pass |
+|---|---|---|
+| 420 px | 0.905 | 0.905 (no extra pass needed) |
+| 200 px | 0.832 | 0.832 (no extra pass needed) |
+| 96 px | **missed** | **0.898** |
+| 48 px | **missed** | **0.694** |
+
+**What it costs.** ~50–90 ms per extra pass, only when a small image had no hit.
+Capped at four per frame so a photo gallery cannot stall the agent loop. The DOM
+supplies the crop rects for free, which is what makes this cheap enough to do at all.
+
+---
+
+## D15 — Ship ORT's "jsep" build, and only once
+
+**Decision.** Import `onnxruntime-web` (the default entry) and stage
+`ort-wasm-simd-threaded.jsep.wasm` in `public/ort/`. Vite is aliased to ORT's
+*non-bundled* ESM build.
+
+**Why, in painful detail,** because this is easy to get wrong and expensive when you do:
+
+- ORT 1.29 ships four different WASM binaries, and each JS entry point references
+  exactly one. `onnxruntime-web` → **jsep** (27 MB, WebGPU + WASM in one file).
+  `onnxruntime-web/webgpu` → **asyncify** (25 MB). Importing one and staging the
+  other ships 52 MB and loads neither.
+- The default export is the *bundle* build, which inlines the wasm loader and makes
+  Vite emit its own hashed copy of the binary — on top of the one in `public/`. The
+  first working build was **54 MB, half of it a duplicate**. Aliasing to the
+  non-bundled build brings it to **28.5 MB**, with exactly one `.wasm` in the output.
+- The alias must be anchored (`/^onnxruntime-web$/`) and point at an absolute file
+  path: the replacement starts with the package name, so a plain string alias matches
+  its own output and recurses until the build dies, and `onnxruntime-web` exports
+  neither `./dist/*` nor `./package.json`.
+
+**Verification.** `find .output -name '*.wasm'` should return exactly one file. That
+check is worth keeping in the release routine.
+
+---
+
+## D16 — `numThreads = 1`
+
+**Decision.** ORT's WASM threading is pinned off.
+
+**Why.** Threaded WASM needs `SharedArrayBuffer`, which needs cross-origin isolation,
+which extension pages do not have by default. Asking for threads without it fails at
+*load* rather than degrading gracefully. The "simd-threaded" binary runs
+single-threaded perfectly well, and the measured numbers above are with threads off —
+so they are the honest floor, not a best case.

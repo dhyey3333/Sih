@@ -37,7 +37,7 @@ PiiType = Literal[
     "GENERIC",
 ]
 
-DetectionSource = Literal["dom-field", "dom-text", "vision", "ocr"]
+DetectionSource = Literal["dom-field", "dom-text", "dom-image", "vision", "ocr"]
 
 ActionName = Literal[
     "click",

@@ -28,12 +28,15 @@ import {
 } from './protocol';
 import type { Vault } from './pii/vault';
 import { loadImage } from './redact/render';
+import type { VisionLayer } from './vision';
 
 export interface AgentOptions {
   serverUrl: string;
   maxSteps?: number;
   /** Pause between steps, to let the page settle after an action. */
   settleMs?: number;
+  /** Turn the on-device vision layer off, to show the DOM-only baseline. */
+  vision?: boolean;
 }
 
 export interface StepReport {
@@ -72,6 +75,11 @@ export class Agent {
   constructor(
     private readonly vault: Vault,
     private readonly options: AgentOptions,
+    /**
+     * Shared across agent runs: the ONNX session takes ~100 ms to compile and the
+     * side panel would otherwise pay that on every task (CLAUDE.md).
+     */
+    private readonly vision: VisionLayer,
   ) {}
 
   stop(): void {
@@ -193,6 +201,20 @@ export class Agent {
     step: number,
   ): Promise<PipelineOutput> {
     const image = await loadImage(perceived.imageDataUrl);
+
+    // The vision layer runs before the pipeline, so its boxes go through the same
+    // fusion, tokenization and egress guard as the DOM layer's — one path, not two.
+    this.vision.enabled = this.options.vision !== false;
+    const visionStart = performance.now();
+    const vision = await this.vision.detect(
+      image,
+      image.naturalWidth,
+      image.naturalHeight,
+      perceived.snapshot,
+      this.vault,
+    );
+    const visionMs = Math.round((performance.now() - visionStart) * 10) / 10;
+
     const output = runPipeline({
       snapshot: perceived.snapshot,
       image,
@@ -203,7 +225,10 @@ export class Agent {
       task,
       step,
       history: this.history.slice(-8),
+      visionDetections: vision.detections,
     });
+    output.timings.vision = visionMs;
+    output.visionStats = vision.stats;
     output.timings.capture = perceived.timings.capture;
     output.timings.snapshot = perceived.timings.snapshot;
     // Held only for the panel's before/after toggle; never serialized.

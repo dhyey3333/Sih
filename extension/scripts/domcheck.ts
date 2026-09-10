@@ -19,6 +19,8 @@ import { scanText } from '../lib/pii/validators';
 import { classifyField } from '../lib/pii/dom-heuristics';
 import { fuseDetections } from '../lib/redact/fuse';
 import { Vault } from '../lib/pii/vault';
+import { VisionLayer } from '../lib/vision';
+import { setAssetBase } from '../lib/vision/runtime';
 
 const api = {
   buildSnapshot,
@@ -31,6 +33,9 @@ const api = {
   scanText,
   classifyField,
   Vault,
+  VisionLayer,
+  /** Point the model loader at wherever `extension/public/` is being served from. */
+  setAssetBase,
 };
 
 declare global {
