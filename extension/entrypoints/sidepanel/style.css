@@ -339,8 +339,15 @@ input[type="text"]:focus-visible {
   height: 14px;
 }
 
+.switch--sub {
+  margin-top: 4px;
+  margin-left: 20px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
 .vision .hint {
-  margin-top: 3px;
+  margin-top: 5px;
 }
 
 .egress {

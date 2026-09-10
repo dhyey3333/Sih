@@ -37,6 +37,8 @@ export interface AgentOptions {
   settleMs?: number;
   /** Turn the on-device vision layer off, to show the DOM-only baseline. */
   vision?: boolean;
+  /** Turn OCR off independently — it is the expensive half of the vision layer. */
+  ocr?: boolean;
 }
 
 export interface StepReport {
@@ -205,6 +207,7 @@ export class Agent {
     // The vision layer runs before the pipeline, so its boxes go through the same
     // fusion, tokenization and egress guard as the DOM layer's — one path, not two.
     this.vision.enabled = this.options.vision !== false;
+    this.vision.ocrEnabled = this.options.ocr !== false;
     const visionStart = performance.now();
     const vision = await this.vision.detect(
       image,

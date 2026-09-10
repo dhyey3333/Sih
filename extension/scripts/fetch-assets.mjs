@@ -28,6 +28,24 @@ const RUNTIME_FILES = [
   ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm', 'public/ort/ort-wasm-simd-threaded.jsep.wasm'],
   // The loader that ORT fetches from `wasmPaths` before the binary itself.
   ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs', 'public/ort/ort-wasm-simd-threaded.jsep.mjs'],
+
+  // Tesseract.js, for reading text out of images. Same reasoning as ORT: MV3 forbids
+  // remotely hosted code, and the library's default is to pull these from a CDN.
+  // The "lstm" core is the smaller of the two builds and is all we need; the glue JS
+  // resolves its .wasm sibling relative to its own URL, so both must sit together.
+  ['node_modules/tesseract.js/dist/worker.min.js', 'public/tesseract/worker.min.js'],
+  //
+  // SIMD only, deliberately. The non-SIMD fallback is another 6.4 MB, and WASM SIMD
+  // has shipped since Chrome 91 and Firefox 89 — every browser that can run this
+  // extension at all has it. Not shipping a fallback that can never fire.
+  ['node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js', 'public/tesseract/tesseract-core-simd-lstm.wasm.js'],
+  ['node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm', 'public/tesseract/tesseract-core-simd-lstm.wasm'],
+];
+
+/** Committed model files, checked rather than copied. */
+const COMMITTED = [
+  ['public/models/face_detection_yunet.onnx', 'YuNet face detector'],
+  ['public/tesseract/eng.traineddata.gz', 'Tesseract English data (tessdata_fast)'],
 ];
 
 async function exists(path) {
@@ -56,17 +74,15 @@ async function main() {
     console.log(`✓ ${to} (${(size / 1024 / 1024).toFixed(1)} MB)`);
   }
 
-  const model = join(root, 'public/models/face_detection_yunet.onnx');
-  if (await exists(model)) {
-    const { size } = await stat(model);
-    console.log(`✓ public/models/face_detection_yunet.onnx (${Math.round(size / 1024)} KB)`);
-  } else {
-    console.warn(
-      '! public/models/face_detection_yunet.onnx is missing.\n' +
-        '  Download it from the OpenCV Zoo (Git LFS media URL):\n' +
-        '  https://media.githubusercontent.com/media/opencv/opencv_zoo/main/' +
-        'models/face_detection_yunet/face_detection_yunet_2023mar.onnx',
-    );
+  for (const [path, label] of COMMITTED) {
+    const file = join(root, path);
+    if (await exists(file)) {
+      const { size } = await stat(file);
+      console.log(`✓ ${path} (${Math.round(size / 1024)} KB) — ${label}`);
+    } else {
+      console.warn(`! ${path} is missing (${label}). See docs/PROGRESS.md for its source.`);
+      process.exitCode = 1;
+    }
   }
 }
 

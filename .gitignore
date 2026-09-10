@@ -50,3 +50,8 @@ eval/results/
 
 # uv virtualenv
 server/.venv/
+
+# Tesseract core WASM: 6.4 MB, copied from node_modules by `npm run assets`.
+# eng.traineddata.gz IS committed so a fresh clone runs offline.
+extension/public/tesseract/tesseract-core-*
+extension/public/tesseract/worker.min.js

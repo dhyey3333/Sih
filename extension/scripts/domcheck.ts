@@ -21,6 +21,7 @@ import { fuseDetections } from '../lib/redact/fuse';
 import { Vault } from '../lib/pii/vault';
 import { VisionLayer } from '../lib/vision';
 import { setAssetBase } from '../lib/vision/runtime';
+import { OcrEngine } from '../lib/vision/ocr';
 
 const api = {
   buildSnapshot,
@@ -36,6 +37,7 @@ const api = {
   VisionLayer,
   /** Point the model loader at wherever `extension/public/` is being served from. */
   setAssetBase,
+  OcrEngine,
 };
 
 declare global {

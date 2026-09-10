@@ -70,6 +70,7 @@ const ui = {
   statVault: $('stat-vault'),
   plannerNote: $('planner-note'),
   visionToggle: $<HTMLInputElement>('vision-toggle'),
+  ocrToggle: $<HTMLInputElement>('ocr-toggle'),
   visionStatus: $('vision-status'),
   egress: $('egress'),
   egressDetail: $('egress-detail'),
@@ -350,6 +351,14 @@ function renderVisionStatus(output: PipelineOutput): void {
     parts.push(`${stats.inferenceMs} ms inference · ${stats.facesFound} face(s)`);
   }
   if (stats.imageRegions > 0) parts.push(`${stats.imageRegions} flagged image region(s)`);
+
+  if (stats.ocrRegions) {
+    const cached = stats.ocrCacheHits ? ` · ${stats.ocrCacheHits} read(s) saved by cache` : '';
+    parts.push(
+      `OCR ${stats.ocrRegions} region(s) in ${stats.ocrMs} ms · ` +
+        `${stats.ocrCharsRead ?? 0} chars read · ${stats.ocrFindings ?? 0} PII found${cached}`,
+    );
+  }
   if (stats.session?.webgpuError) parts.push(`WebGPU unavailable: ${stats.session.webgpuError}`);
 
   ui.visionStatus.textContent = parts.join(' · ');
@@ -381,6 +390,7 @@ function makeAgent(): Agent {
       serverUrl: ui.serverUrl.value.trim(),
       maxSteps: 12,
       vision: ui.visionToggle.checked,
+      ocr: ui.ocrToggle.checked,
     },
     vision,
   );
@@ -524,10 +534,16 @@ ui.profileDemo.addEventListener('click', () => {
 
 ui.visionToggle.addEventListener('change', () => {
   vision.enabled = ui.visionToggle.checked;
+  ui.ocrToggle.disabled = !ui.visionToggle.checked;
   ui.visionStatus.textContent = ui.visionToggle.checked
     ? 'on — loads on first use'
     : 'off — DOM and text layers only';
   log(`Vision layer ${ui.visionToggle.checked ? 'enabled' : 'disabled'}.`);
+});
+
+ui.ocrToggle.addEventListener('change', () => {
+  vision.ocrEnabled = ui.ocrToggle.checked;
+  log(`OCR ${ui.ocrToggle.checked ? 'enabled' : 'disabled'}.`);
 });
 
 // The panel is torn down whenever it closes; release the WASM heap with it.

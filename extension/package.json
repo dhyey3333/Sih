@@ -27,6 +27,7 @@
     "wxt": "^0.21.3"
   },
   "dependencies": {
-    "onnxruntime-web": "^1.29.0"
+    "onnxruntime-web": "^1.29.0",
+    "tesseract.js": "^7.0.0"
   }
 }
