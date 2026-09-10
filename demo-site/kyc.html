@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>National Scholarship Portal — KYC &amp; Application</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!--
+      EVERY VALUE ON THIS PAGE IS FAKE (CLAUDE.md).
+      The Aadhaar numbers are Verhoeff-valid and the card numbers Luhn-valid on
+      purpose, so the detectors are exercised for real, but they are not issued
+      to anybody.
+
+      `data-pii="TYPE"` is ground truth. The eval harness reads it to score
+      precision/recall, and ml/synth reuses the same attribute to generate YOLO
+      labels straight from the DOM (docs/PLAN.md §6.1). Keep it accurate.
+
+      Note the deliberately mixed conventions: some fields use `autocomplete`,
+      some only a <label for>, some only a snake_case `name`, some only a
+      placeholder. Real forms are inconsistent, so the DOM layer has to be too.
+    -->
+    <p class="fake-banner">
+      DEMO PAGE — every name, number and document on this page is synthetic test data.
+    </p>
+
+    <header class="gov-header">
+      <div class="emblem">NS</div>
+      <div>
+        <h1>National Scholarship Portal</h1>
+        <p>Ministry of Education · Post-Matric Scholarship 2026–27</p>
+      </div>
+    </header>
+
+    <nav>
+      <a href="./index.html">Home</a>
+      <a href="./kyc.html" aria-current="page">Application</a>
+      <a href="./profile.html">My profile</a>
+      <a href="./bank.html">Bank details</a>
+    </nav>
+
+    <main>
+      <form id="application" action="#" method="post">
+        <section class="card">
+          <h2>Applicant identity</h2>
+          <p>Details fetched from your Aadhaar-linked record. Verify before continuing.</p>
+
+          <div class="identity">
+            <img
+              class="avatar"
+              src="./assets/applicant-photo.svg"
+              alt="Passport photograph of the applicant"
+              data-pii="FACE"
+            />
+
+            <div style="flex: 1">
+              <div class="grid">
+                <label>
+                  <span class="lbl">Full name <span class="req">*</span></span>
+                  <input type="text" id="full_name" name="full_name" autocomplete="name"
+                         value="Ananya Iyer" data-pii="NAME" />
+                </label>
+
+                <label>
+                  <span class="lbl">Father's name</span>
+                  <input type="text" id="father_name" name="father_name"
+                         value="Rajesh Iyer" data-pii="NAME" />
+                </label>
+
+                <label>
+                  <span class="lbl">Date of birth <span class="req">*</span></span>
+                  <input type="text" id="dob" name="date_of_birth" autocomplete="bday"
+                         value="14/03/2001" data-pii="DOB" />
+                </label>
+
+                <label>
+                  <span class="lbl">Gender</span>
+                  <select id="gender" name="gender">
+                    <option>Select</option>
+                    <option selected>Female</option>
+                    <option>Male</option>
+                    <option>Other</option>
+                  </select>
+                </label>
+
+                <!-- No <label for>, no autocomplete: only the snake_case name gives it away. -->
+                <label>
+                  <span class="lbl">Aadhaar number <span class="req">*</span></span>
+                  <input type="text" name="aadhaar_no" value="2234 5678 9018"
+                         maxlength="14" data-pii="AADHAAR" />
+                  <p class="hint">12-digit UID as printed on your Aadhaar card</p>
+                </label>
+
+                <label>
+                  <span class="lbl">PAN</span>
+                  <input type="text" name="panNumber" value="ABCPI1234K"
+                         maxlength="10" data-pii="PAN" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Contact details</h2>
+          <div class="grid">
+            <label>
+              <span class="lbl">Email address <span class="req">*</span></span>
+              <input type="email" id="email" name="email" autocomplete="email"
+                     value="ananya.iyer@example.com" data-pii="EMAIL" />
+            </label>
+
+            <label>
+              <span class="lbl">Mobile number <span class="req">*</span></span>
+              <input type="tel" id="mobile" name="mobile_no" autocomplete="tel"
+                     value="9812345678" data-pii="PHONE" />
+            </label>
+
+            <label class="full">
+              <span class="lbl">Residential address <span class="req">*</span></span>
+              <textarea id="address" name="address" rows="2" autocomplete="street-address"
+                        data-pii="ADDRESS">42 Nehru Road, Bandra West, Mumbai</textarea>
+            </label>
+
+            <label>
+              <span class="lbl">PIN code <span class="req">*</span></span>
+              <input type="text" name="pincode" autocomplete="postal-code"
+                     value="400050" maxlength="6" data-pii="PINCODE" />
+            </label>
+
+            <!-- A district narrows a person down to a few hundred thousand people,
+                 so it is address data and is annotated as such. -->
+            <label>
+              <span class="lbl">District</span>
+              <input type="text" name="district" value="Mumbai Suburban" data-pii="ADDRESS" />
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Identity document</h2>
+          <p>Uploaded on 12 August 2026. The scan below is stored against your application.</p>
+          <img class="id-card" src="./assets/id-card.svg"
+               alt="Scanned Aadhaar card" data-pii="ID_DOCUMENT" />
+        </section>
+
+        <section class="card">
+          <h2>Scholarship disbursal account</h2>
+          <div class="grid">
+            <label>
+              <span class="lbl">Bank account number <span class="req">*</span></span>
+              <input type="text" name="account_number" value="001234567890" data-pii="ACCOUNT" />
+            </label>
+
+            <label>
+              <span class="lbl">IFSC code <span class="req">*</span></span>
+              <input type="text" name="ifsc" value="HDFC0001234" maxlength="11" data-pii="IFSC" />
+            </label>
+
+            <label>
+              <span class="lbl">UPI ID (optional)</span>
+              <!-- Only a placeholder to go on. -->
+              <input type="text" name="vpa" placeholder="yourname@bank" value="ananya@okhdfcbank"
+                     data-pii="UPI" />
+            </label>
+
+            <label>
+              <span class="lbl">Annual family income (₹)</span>
+              <input type="number" name="family_income" value="480000" data-pii="GENERIC" />
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Verification</h2>
+          <div class="grid">
+            <label>
+              <span class="lbl">Portal password <span class="req">*</span></span>
+              <input type="password" id="password" name="password" autocomplete="current-password"
+                     value="hunter2-not-real" data-pii="PASSWORD" />
+            </label>
+
+            <label>
+              <span class="lbl">Enter OTP sent to your mobile</span>
+              <input type="text" name="otp" autocomplete="one-time-code" inputmode="numeric"
+                     maxlength="6" value="482913" data-pii="OTP" />
+            </label>
+
+            <!-- A genuinely non-sensitive field, to keep the precision score honest. -->
+            <label>
+              <span class="lbl">Referral code</span>
+              <input type="text" name="referral_code" value="NSP2026" />
+            </label>
+
+            <label>
+              <span class="lbl">Preferred campus</span>
+              <select name="campus">
+                <option selected>Mumbai</option>
+                <option>Pune</option>
+                <option>Nagpur</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="checkline">
+            <input type="checkbox" name="declaration" />
+            <span>I declare that the information furnished above is true to the best of my knowledge.</span>
+          </label>
+
+          <div class="actions">
+            <button type="button" id="save-draft">Save draft</button>
+            <button type="submit" class="primary" id="submit-application">Submit application</button>
+            <button type="button" class="danger" id="withdraw">Withdraw application</button>
+          </div>
+        </section>
+      </form>
+    </main>
+
+    <footer>Synthetic demo for SIH — no real personal data is present on this page.</footer>
+
+    <script>
+      // Submitting would navigate away mid-demo. The agent must stop and ask for
+      // confirmation before this button anyway; this just makes the page safe to
+      // click on stage.
+      document.getElementById('application').addEventListener('submit', (event) => {
+        event.preventDefault();
+        alert('Demo page: submission is disabled.');
+      });
+    </script>
+  </body>
+</html>

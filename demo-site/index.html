@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PrivAgent demo site</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <p class="fake-banner">
+      All personal data across this demo site is synthetic. Nothing here belongs to a real person.
+    </p>
+
+    <header class="gov-header">
+      <div class="emblem">NS</div>
+      <div>
+        <h1>PrivAgent demo site</h1>
+        <p>Mock pages for developing, demoing and scoring the redaction pipeline</p>
+      </div>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>What this is</h2>
+        <p>
+          Three pages that between them cover the cases the privacy filter has to handle.
+          Every sensitive element carries a <code>data-pii="TYPE"</code> attribute, which is
+          the ground truth the eval harness scores against — and the same annotation the
+          synthetic data engine turns into YOLO labels.
+        </p>
+      </section>
+
+      <ul class="index-list">
+        <li>
+          <a href="./kyc.html">
+            <strong>KYC &amp; scholarship application</strong>
+            <span>
+              Form fields: password, Aadhaar, PAN, card, OTP, IFSC, UPI, address, photo and a
+              scanned ID card. Mixed labelling conventions — some fields declare
+              <code>autocomplete</code>, some only have a snake_case <code>name</code>.
+            </span>
+          </a>
+        </li>
+        <li>
+          <a href="./profile.html">
+            <strong>Profile page</strong>
+            <span>
+              No form fields at all: every value is page text, including one split across
+              elements and one that wraps across lines. Tests the text layer and its pixel rects.
+            </span>
+          </a>
+        </li>
+        <li>
+          <a href="./bank.html">
+            <strong>Bank details</strong>
+            <span>
+              PII-dense enough that redaction should cover a large share of the screen and push
+              the pipeline down to structure-only disclosure. Includes decoy numbers that must
+              <em>not</em> be redacted.
+            </span>
+          </a>
+        </li>
+      </ul>
+
+      <section class="card">
+        <h2>Serving it</h2>
+        <p>
+          Content scripts run on <code>file://</code> only if you grant file access, so serve it
+          over HTTP instead:
+        </p>
+        <pre><code>python3 -m http.server 5173 --directory demo-site</code></pre>
+        <p>Then open <code>http://localhost:5173/kyc.html</code> and press <b>Analyze page</b>.</p>
+      </section>
+    </main>
+
+    <footer>Synthetic demo for SIH — no real personal data is present on this site.</footer>
+  </body>
+</html>

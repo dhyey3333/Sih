@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PrivAgent</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"></span>
+        <div>
+          <strong>PrivAgent</strong>
+          <span class="tagline">on-device redaction</span>
+        </div>
+      </div>
+      <span id="status" class="pill pill--idle">idle</span>
+    </header>
+
+    <main>
+      <section class="panel">
+        <label class="field">
+          <span class="field__label">Task</span>
+          <input
+            id="task"
+            type="text"
+            placeholder="Fill this form with my profile, stop before submitting"
+            autocomplete="off"
+          />
+        </label>
+        <div class="row">
+          <button id="analyze" class="btn btn--primary">Analyze page</button>
+          <button id="clear" class="btn">Reset session</button>
+        </div>
+        <p id="error" class="error" hidden></p>
+      </section>
+
+      <section class="panel">
+        <div class="toggle" role="tablist" aria-label="Preview mode">
+          <button id="tab-sanitized" class="toggle__btn is-active" role="tab" aria-selected="true">
+            What the server sees
+          </button>
+          <button id="tab-original" class="toggle__btn" role="tab" aria-selected="false">
+            Original
+          </button>
+        </div>
+        <div id="preview" class="preview">
+          <p class="preview__empty">Open any page and press <b>Analyze page</b>.</p>
+          <img id="preview-img" alt="Page preview" hidden />
+        </div>
+        <p class="hint">
+          Boxes are drawn on-device. Blue badges are element ids the server acts through.
+        </p>
+      </section>
+
+      <section class="panel">
+        <div class="stats">
+          <div class="stat"><span id="stat-detections">–</span><small>detections</small></div>
+          <div class="stat"><span id="stat-area">–</span><small>screen redacted</small></div>
+          <div class="stat"><span id="stat-level">–</span><small>disclosure</small></div>
+          <div class="stat"><span id="stat-vault">–</span><small>vault values</small></div>
+        </div>
+        <div id="egress" class="egress egress--unknown">
+          <strong>Egress guard</strong>
+          <span id="egress-detail">not run yet</span>
+        </div>
+      </section>
+
+      <details class="panel" open>
+        <summary>Detections <span id="detections-count" class="count">0</span></summary>
+        <ul id="detections" class="detections">
+          <li class="muted">Nothing scanned yet.</li>
+        </ul>
+      </details>
+
+      <details class="panel">
+        <summary>Latency breakdown</summary>
+        <ul id="timings" class="timings">
+          <li class="muted">Nothing measured yet.</li>
+        </ul>
+      </details>
+
+      <details class="panel">
+        <summary>Payload inspector <span class="count">what leaves the device</span></summary>
+        <p class="hint">
+          The exact JSON body. The screenshot is shown as its byte length, not inlined.
+        </p>
+        <pre id="payload" class="payload">–</pre>
+      </details>
+
+      <details class="panel">
+        <summary>My profile <span class="count">stays on this device</span></summary>
+        <p class="hint">
+          Used to fill forms and to catch names and addresses that no pattern can match.
+          The server only ever learns which keys exist.
+        </p>
+        <div id="profile" class="profile"></div>
+        <button id="profile-demo" class="btn btn--ghost">Load demo profile (fake data)</button>
+      </details>
+
+      <details class="panel">
+        <summary>Activity</summary>
+        <ul id="log" class="log"></ul>
+      </details>
+    </main>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

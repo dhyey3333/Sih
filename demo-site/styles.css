@@ -1,0 +1,227 @@
+/* Deliberately looks like an ordinary Indian government / bank web form:
+   plain markup, mixed labelling conventions, snake_case field names. The point is
+   that PrivAgent handles pages it has never seen, not a page built to suit it. */
+
+:root {
+  --ink: #14213d;
+  --muted: #5a6b8c;
+  --line: #d6dde8;
+  --brand: #1a3a6b;
+  --accent: #e8a33d;
+  --bg: #eef2f7;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.6 "Segoe UI", Roboto, system-ui, sans-serif;
+}
+
+.fake-banner {
+  background: #7f1d1d;
+  color: #fff;
+  text-align: center;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.gov-header {
+  background: var(--brand);
+  color: #fff;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.emblem {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: var(--brand);
+}
+
+.gov-header h1 { margin: 0; font-size: 17px; }
+.gov-header p { margin: 0; font-size: 12px; opacity: 0.85; }
+
+nav {
+  background: #12294d;
+  padding: 0 24px;
+  display: flex;
+  gap: 18px;
+}
+
+nav a {
+  color: #cfe0f7;
+  text-decoration: none;
+  padding: 9px 0;
+  font-size: 13px;
+}
+
+nav a:hover, nav a[aria-current] { color: #fff; box-shadow: inset 0 -2px 0 var(--accent); }
+
+main {
+  max-width: 880px;
+  margin: 20px auto 60px;
+  padding: 0 16px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 20px 22px;
+  margin-bottom: 18px;
+}
+
+.card > h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: var(--brand);
+}
+
+.card > h2 + p { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 18px;
+}
+
+.grid .full { grid-column: 1 / -1; }
+
+label { display: block; }
+
+.lbl {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.req { color: #b91c1c; }
+
+input[type="text"],
+input[type="email"],
+input[type="tel"],
+input[type="password"],
+input[type="date"],
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+  background: #fdfdfe;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid #93b4e8;
+  outline-offset: -1px;
+}
+
+.hint { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+.identity {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.avatar {
+  width: 104px;
+  height: 128px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.id-card {
+  width: 300px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+dl.summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 14px;
+}
+
+dl.summary dt { color: var(--muted); }
+dl.summary dd { margin: 0; font-weight: 600; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+th, td {
+  text-align: left;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+button {
+  padding: 9px 18px;
+  border-radius: 4px;
+  border: 1px solid var(--brand);
+  background: #fff;
+  color: var(--brand);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.primary { background: var(--brand); color: #fff; }
+button.danger { border-color: #b91c1c; color: #b91c1c; }
+
+.checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin-top: 14px; }
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 20px;
+}
+
+.index-list { list-style: none; padding: 0; display: grid; gap: 12px; }
+
+.index-list a {
+  display: block;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.index-list a:hover { border-color: var(--brand); }
+.index-list strong { display: block; color: var(--brand); margin-bottom: 3px; }
+.index-list span { font-size: 13px; color: var(--muted); }

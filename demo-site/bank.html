@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bank details — National Scholarship Portal</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!--
+      FAKE DATA ONLY. Card numbers are Luhn-valid industry test numbers.
+
+      Purpose: a screen so dense with PII that redaction covers a large fraction of
+      it. That is what should push the pipeline from L2 (sanitized image + structure)
+      down to L1 (structure only) — an image that is 60% black boxes tells the VLM
+      nothing the element list doesn't, so there is no reason to send it.
+    -->
+    <p class="fake-banner">DEMO PAGE — all account and card numbers are synthetic test values.</p>
+
+    <header class="gov-header">
+      <div class="emblem">NS</div>
+      <div>
+        <h1>National Scholarship Portal</h1>
+        <p>Disbursal account &amp; payment history</p>
+      </div>
+    </header>
+
+    <nav>
+      <a href="./index.html">Home</a>
+      <a href="./kyc.html">Application</a>
+      <a href="./profile.html">My profile</a>
+      <a href="./bank.html" aria-current="page">Bank details</a>
+    </nav>
+
+    <main>
+      <section class="card">
+        <h2>Linked accounts</h2>
+        <dl class="summary">
+          <dt>Account holder</dt>
+          <dd data-pii="NAME">Ananya Iyer</dd>
+          <dt>Account number</dt>
+          <dd data-pii="ACCOUNT">001234567890</dd>
+          <dt>IFSC</dt>
+          <dd data-pii="IFSC">HDFC0001234</dd>
+          <dt>Registered mobile</dt>
+          <dd data-pii="PHONE">9812345678</dd>
+          <dt>Registered email</dt>
+          <dd data-pii="EMAIL">ananya.iyer@example.com</dd>
+          <dt>UPI ID</dt>
+          <dd data-pii="UPI">ananya@okhdfcbank</dd>
+          <dt>Aadhaar seeded</dt>
+          <dd data-pii="AADHAAR">2234 5678 9018</dd>
+          <dt>PAN on record</dt>
+          <dd data-pii="PAN">ABCPI1234K</dd>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Saved cards</h2>
+        <table>
+          <thead>
+            <tr><th>Card</th><th>Holder</th><th>Expires</th><th>Type</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-pii="CARD">4111 1111 1111 1111</td>
+              <td data-pii="NAME">Ananya Iyer</td>
+              <td>08/29</td>
+              <td>Visa debit</td>
+            </tr>
+            <tr>
+              <td data-pii="CARD">5500 0000 0000 0004</td>
+              <td data-pii="NAME">Rajesh Iyer</td>
+              <td>11/27</td>
+              <td>Mastercard credit</td>
+            </tr>
+            <tr>
+              <td data-pii="CARD">3782 822463 10005</td>
+              <td data-pii="NAME">Ananya Iyer</td>
+              <td>02/28</td>
+              <td>Amex</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint">
+          Reference numbers on this page — 100000000000, 5500000000000005 — are not
+          cards and must survive redaction untouched.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Add a payee</h2>
+        <div class="grid">
+          <label>
+            <span class="lbl">Payee account number</span>
+            <input type="text" name="payee_account_number" placeholder="Account number" />
+          </label>
+          <label>
+            <span class="lbl">Confirm account number</span>
+            <input type="text" name="payee_account_confirm" placeholder="Re-enter account number" />
+          </label>
+          <label>
+            <span class="lbl">IFSC code</span>
+            <input type="text" name="payee_ifsc" placeholder="e.g. HDFC0001234" />
+          </label>
+          <label>
+            <span class="lbl">Nickname</span>
+            <input type="text" name="payee_nickname" placeholder="Hostel fees" />
+          </label>
+        </div>
+        <div class="actions">
+          <button type="button">Cancel</button>
+          <button type="button" class="primary" id="transfer">Transfer ₹25,000</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>Synthetic demo for SIH — no real personal data is present on this page.</footer>
+  </body>
+</html>

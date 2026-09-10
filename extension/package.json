@@ -1,0 +1,28 @@
+{
+  "name": "privagent-extension",
+  "description": "Privacy-preserving on-device vision agent for Chrome and Firefox",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "build:all": "wxt build && wxt build -b firefox",
+    "build:domcheck": "vite build --config vite.domcheck.config.ts",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "compile": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5",
+    "vitest": "^3.2.4",
+    "web-ext": "^10.5.0",
+    "wxt": "^0.21.3"
+  }
+}

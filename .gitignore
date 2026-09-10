@@ -1,0 +1,43 @@
+# Teammate's earlier work: read-only reference, never part of our build
+reference/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+extension/.output/
+extension/.wxt/
+dist/
+build/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# ML artifacts (large; regenerate with the scripts in ml/)
+ml/data/
+ml/runs/
+*.pt
+*.onnx.bak
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Eval output
+eval/results/
+
+# Per-user Claude Code settings (launch.json is shared and stays tracked)
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Stand-in passport photograph. An illustration, not a person — the repo must not
+  contain anyone's face (CLAUDE.md).
+
+  Because it is referenced as <img src>, its contents are invisible to the parent
+  document: `document.body.innerText` cannot see anything inside this file. That is
+  precisely why the vision layer exists. For the M4 face-detector demo, swap in a
+  synthetic photographic portrait; a flat illustration will not reliably trip a
+  real face detector.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 208 256" width="208" height="256" role="img"
+     aria-label="Illustrated passport photograph">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dbe7f5" />
+      <stop offset="1" stop-color="#b9cde6" />
+    </linearGradient>
+  </defs>
+
+  <rect width="208" height="256" fill="url(#bg)" />
+
+  <!-- shoulders -->
+  <path d="M14 256c0-46 40-72 90-72s90 26 90 72z" fill="#2f4a72" />
+  <path d="M74 190h60v24H74z" fill="#e7d3c2" />
+
+  <!-- head -->
+  <ellipse cx="104" cy="122" rx="50" ry="58" fill="#e7d3c2" />
+  <path d="M54 116c0-40 22-60 50-60s50 20 50 60c0-8-6-26-18-30-14 10-52 12-66-2-10 8-16 22-16 32z"
+        fill="#2b2320" />
+
+  <!-- features -->
+  <ellipse cx="85" cy="118" rx="6" ry="7" fill="#2b2320" />
+  <ellipse cx="123" cy="118" rx="6" ry="7" fill="#2b2320" />
+  <path d="M78 102c5-4 12-4 17-1" stroke="#2b2320" stroke-width="3.5" fill="none" stroke-linecap="round" />
+  <path d="M113 101c5-3 12-3 17 1" stroke="#2b2320" stroke-width="3.5" fill="none" stroke-linecap="round" />
+  <path d="M104 128v14c0 3-3 5-7 5" stroke="#c9a98f" stroke-width="3" fill="none" stroke-linecap="round" />
+  <path d="M88 158c9 7 23 7 32 0" stroke="#a8705f" stroke-width="4" fill="none" stroke-linecap="round" />
+
+  <rect x="0" y="0" width="208" height="256" fill="none" stroke="#8fa6c4" stroke-width="2" />
+</svg>

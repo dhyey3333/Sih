@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My profile — National Scholarship Portal</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!--
+      FAKE DATA ONLY.
+
+      This page holds no form fields at all: every value is plain page *text*.
+      That makes it the test for the text layer — Range.getClientRects() has to
+      produce a pixel box for each value, including ones split across elements
+      (see the Aadhaar row, where the label and the value are separate nodes) and
+      ones that wrap across two lines (the address).
+    -->
+    <p class="fake-banner">DEMO PAGE — all values below are synthetic test data.</p>
+
+    <header class="gov-header">
+      <div class="emblem">NS</div>
+      <div>
+        <h1>National Scholarship Portal</h1>
+        <p>Applicant dashboard</p>
+      </div>
+    </header>
+
+    <nav>
+      <a href="./index.html">Home</a>
+      <a href="./kyc.html">Application</a>
+      <a href="./profile.html" aria-current="page">My profile</a>
+      <a href="./bank.html">Bank details</a>
+    </nav>
+
+    <main>
+      <section class="card">
+        <h2>Welcome back, <span data-pii="NAME">Ananya Iyer</span></h2>
+        <p>Application ID NSP-2026-778213 · last updated 2 September 2026</p>
+
+        <div class="identity">
+          <img class="avatar" src="./assets/applicant-photo.svg"
+               alt="Your profile photo" data-pii="FACE" />
+          <dl class="summary">
+            <dt>Email</dt>
+            <dd data-pii="EMAIL">ananya.iyer@example.com</dd>
+
+            <dt>Mobile</dt>
+            <dd data-pii="PHONE">9812345678</dd>
+
+            <dt>Date of birth</dt>
+            <dd data-pii="DOB">14/03/2001</dd>
+
+            <!-- Label and value in different elements: the value alone is just digits. -->
+            <dt>Aadhaar</dt>
+            <dd><span data-pii="AADHAAR">2234 5678 9018</span> <em>(verified)</em></dd>
+
+            <dt>PAN</dt>
+            <dd data-pii="PAN">ABCPI1234K</dd>
+
+            <dt>Passport</dt>
+            <dd data-pii="PASSPORT">M1234567</dd>
+
+            <dt>Address</dt>
+            <dd data-pii="ADDRESS">42 Nehru Road, Bandra West, Mumbai 400050</dd>
+          </dl>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Recent notifications</h2>
+        <p>
+          A one-time password was sent to <span data-pii="PHONE">9812345678</span> on 2 September.
+          If you did not request it, write to
+          <a href="#" data-pii="EMAIL">grievance.cell@example.gov.in</a> quoting your
+          application ID. Do not share your OTP with anyone.
+        </p>
+        <p>
+          Your disbursal account ending 7890 at IFSC
+          <span data-pii="IFSC">HDFC0001234</span> was verified successfully.
+          UPI ID <span data-pii="UPI">ananya@okhdfcbank</span> is linked as a backup.
+        </p>
+        <p>
+          Registration opens on 14/03/2027 for the next cycle. That is an intake
+          date, not personal data, and must survive redaction untouched.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Support</h2>
+        <p>
+          Helpline 1800 111 555 · office hours 09:00–17:30 · ticket queue currently 1234 items.
+          None of the numbers in this paragraph are personal data.
+        </p>
+      </section>
+    </main>
+
+    <footer>Synthetic demo for SIH — no real personal data is present on this page.</footer>
+  </body>
+</html>
