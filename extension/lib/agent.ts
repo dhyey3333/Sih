@@ -46,6 +46,11 @@ export interface AgentOptions {
    * On by default: it is both the fastest and the most private path.
    */
   localFirst?: boolean;
+  /**
+   * Paint over frames the DOM layer was not allowed to read (cross-origin iframes,
+   * embeds). On by default — see `detectionsFromOpaqueFrames`.
+   */
+  coverFrames?: boolean;
 }
 
 export interface StepReport {
@@ -262,6 +267,7 @@ export class Agent {
       history: this.history.slice(-8),
       visionDetections: vision.detections,
       visionElements: vision.elements,
+      coverOpaqueFrames: this.options.coverFrames !== false,
     });
     // Remembered so an action on a pixel-found control can be resolved to a point.
     this.visionElements = vision.elements;

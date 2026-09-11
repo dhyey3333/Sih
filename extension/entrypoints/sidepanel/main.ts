@@ -98,6 +98,7 @@ const ui = {
 
   visionToggle: $<HTMLInputElement>('vision-toggle'),
   ocrToggle: $<HTMLInputElement>('ocr-toggle'),
+  framesToggle: $<HTMLInputElement>('frames-toggle'),
   visionStatus: $('vision-status'),
 
   profile: $('profile'),
@@ -611,6 +612,7 @@ function makeAgent(): Agent {
       maxSteps: 12,
       vision: ui.visionToggle.checked,
       ocr: ui.ocrToggle.checked,
+      coverFrames: ui.framesToggle.checked,
     },
     vision,
   );
@@ -804,6 +806,15 @@ ui.visionToggle.addEventListener('change', () => {
 ui.ocrToggle.addEventListener('change', () => {
   vision.ocrEnabled = ui.ocrToggle.checked;
   log(`OCR ${ui.ocrToggle.checked ? 'enabled' : 'disabled'}.`);
+});
+
+ui.framesToggle.addEventListener('change', () => {
+  log(
+    ui.framesToggle.checked
+      ? 'Frames we cannot inspect will be covered.'
+      : 'Frames we cannot inspect will be sent as-is. Their contents were never scanned.',
+    ui.framesToggle.checked ? 'info' : 'err',
+  );
 });
 
 // The panel is torn down whenever it closes; release the WASM heaps with it.

@@ -37,6 +37,22 @@ export function interactiveSelector(): string {
   return INTERACTIVE_SELECTOR;
 }
 
+/**
+ * Tag test instead of `instanceof`.
+ *
+ * An element inside an `<iframe>` belongs to *that frame's* realm, so it is an
+ * instance of the frame's `HTMLInputElement`, not of ours — `instanceof` is false
+ * for every field in a frame we traverse into (lib/dom/deep.ts). That failure is
+ * silent and looks exactly like "the page has no fields", which is the worst shape
+ * a bug can take here.
+ */
+function isTag(el: Element, tag: string): boolean {
+  return el.tagName === tag;
+}
+
+/** The form properties we read, without asserting which realm the class came from. */
+type FormLike = Element & { type?: string; placeholder?: string; value?: string };
+
 function textOf(node: Element | null | undefined): string {
   return (node?.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -99,8 +115,8 @@ function isTextEntry(el: Element): boolean {
   return (
     el.getAttribute('contenteditable') !== null ||
     el.getAttribute('role') === 'textbox' ||
-    el instanceof HTMLInputElement ||
-    el instanceof HTMLTextAreaElement
+    isTag(el, 'INPUT') ||
+    isTag(el, 'TEXTAREA')
   );
 }
 
@@ -114,13 +130,14 @@ export function accessibleName(el: Element): string {
   const associated = associatedLabelText(el);
   if (associated) return associated;
 
-  if (el instanceof HTMLInputElement) {
-    if (el.placeholder) return el.placeholder;
-    if ((el.type === 'submit' || el.type === 'button' || el.type === 'reset') && el.value) {
-      return el.value;
+  const form = el as FormLike;
+  if (isTag(el, 'INPUT')) {
+    if (form.placeholder) return form.placeholder;
+    if ((form.type === 'submit' || form.type === 'button' || form.type === 'reset') && form.value) {
+      return form.value;
     }
   }
-  if (el instanceof HTMLTextAreaElement && el.placeholder) return el.placeholder;
+  if (isTag(el, 'TEXTAREA') && form.placeholder) return form.placeholder;
 
   const title = el.getAttribute('title')?.trim();
   if (title) return title;
@@ -149,8 +166,8 @@ export function roleOf(el: Element): string {
   if (tag === 'textarea') return 'textbox';
   if (el.getAttribute('contenteditable') !== null) return 'textbox';
 
-  if (el instanceof HTMLInputElement) {
-    switch (el.type) {
+  if (isTag(el, 'INPUT')) {
+    switch ((el as FormLike).type) {
       case 'checkbox':
         return 'checkbox';
       case 'radio':
@@ -175,8 +192,17 @@ export function roleOf(el: Element): string {
  * Visible *and* on screen. `checkVisibility` handles display/visibility/opacity and
  * `content-visibility` in one call; the rect test then drops elements scrolled out
  * of view, which we cannot see in the screenshot anyway.
+ *
+ * `dx`/`dy` shift the element's rect into the top-level viewport — non-zero only for
+ * something found inside a same-origin frame (lib/dom/deep.ts). Visibility has to be
+ * judged against the viewport the screenshot covers, not the frame's own.
  */
-export function isVisibleInViewport(el: Element, viewport: { w: number; h: number }): boolean {
+export function isVisibleInViewport(
+  el: Element,
+  viewport: { w: number; h: number },
+  dx = 0,
+  dy = 0,
+): boolean {
   const checkable = el as Element & { checkVisibility?: (opts?: object) => boolean };
   if (typeof checkable.checkVisibility === 'function') {
     if (!checkable.checkVisibility({ contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true })) {
@@ -186,5 +212,7 @@ export function isVisibleInViewport(el: Element, viewport: { w: number; h: numbe
 
   const rect = el.getBoundingClientRect();
   if (rect.width < 2 || rect.height < 2) return false;
-  return rect.bottom > 0 && rect.right > 0 && rect.top < viewport.h && rect.left < viewport.w;
+  const top = rect.top + dy;
+  const left = rect.left + dx;
+  return top + rect.height > 0 && left + rect.width > 0 && top < viewport.h && left < viewport.w;
 }

@@ -10,7 +10,7 @@
 import type { DomSnapshot, ImageCandidate, PageElement, PiiType, Rect, TextFinding } from '../protocol';
 import { accessibleName, interactiveSelector, isVisibleInViewport, roleOf } from './accessibility';
 import { collectTextBlocks, rectsForSpan } from './text-blocks';
-import { deepQueryAll } from './shadow';
+import { deepQueryAll, opaqueFrames } from './deep';
 import { classifyField, imageHint, type FieldDescriptor } from '../pii/dom-heuristics';
 import { scanText } from '../pii/validators';
 
@@ -48,14 +48,23 @@ export function buildSnapshot(options: SnapshotOptions = {}): DomSnapshot {
     elements: collectElements(viewport, maxElements, registry),
     textFindings: collectTextFindings(viewport, knownValues),
     imageCandidates: collectImageCandidates(viewport, maxImages),
+    opaqueFrames: opaqueFrames(document).filter(
+      (f) => f.y + f.h > 0 && f.x + f.w > 0 && f.y < viewport.h && f.x < viewport.w,
+    ),
     durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
   };
 }
 
-export function toRect(domRect: DOMRect): Rect {
+/**
+ * A DOMRect as a `Rect`, shifted into the top-level viewport.
+ *
+ * `dx`/`dy` come from the scope the element was found in (lib/dom/deep.ts) and are
+ * zero for anything in the top document. They must be added exactly once.
+ */
+export function toRect(domRect: DOMRect, dx = 0, dy = 0): Rect {
   return {
-    x: Math.round(domRect.left * 10) / 10,
-    y: Math.round(domRect.top * 10) / 10,
+    x: Math.round((domRect.left + dx) * 10) / 10,
+    y: Math.round((domRect.top + dy) * 10) / 10,
     w: Math.round(domRect.width * 10) / 10,
     h: Math.round(domRect.height * 10) / 10,
   };
@@ -87,11 +96,11 @@ function collectElements(
   const out: PageElement[] = [];
   let nextId = 1;
 
-  // Deep: a form inside a web component is otherwise invisible to every layer
-  // below this one (lib/dom/shadow.ts).
-  for (const el of deepQueryAll(document, interactiveSelector())) {
+  // Deep: a form inside a web component or a same-origin frame is otherwise
+  // invisible to every layer below this one (lib/dom/deep.ts).
+  for (const { el, dx, dy } of deepQueryAll(document, interactiveSelector())) {
     if (out.length >= maxElements) break;
-    if (!isVisibleInViewport(el, viewport)) continue;
+    if (!isVisibleInViewport(el, viewport, dx, dy)) continue;
 
     const id = nextId++;
     const label = accessibleName(el);
@@ -113,7 +122,7 @@ function collectElements(
       id,
       role,
       tag: el.tagName.toLowerCase(),
-      bbox: toRect(el.getBoundingClientRect()),
+      bbox: toRect(el.getBoundingClientRect(), dx, dy),
     };
 
     if (label) element.label = label;
@@ -133,16 +142,25 @@ function collectElements(
       if (text) element.text = text.slice(0, 120);
     }
 
-    if (el instanceof HTMLSelectElement) {
-      element.options = [...el.options].slice(0, 40).map((o) => o.text.trim());
-      if (el.value) element.value = el.value;
-    } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    // Tag tests, not `instanceof`: an element inside a frame belongs to that
+    // frame's realm, where our `HTMLInputElement` is a different class. `instanceof`
+    // silently returns false for every field in a frame, and the page then looks
+    // like it has no values in it at all.
+    const form = el as Element & {
+      type?: string;
+      value?: string;
+      options?: ArrayLike<{ text: string }> & Iterable<{ text: string }>;
+    };
+    if (el.tagName === 'SELECT') {
+      element.options = [...(form.options ?? [])].slice(0, 40).map((o) => o.text.trim());
+      if (form.value) element.value = form.value;
+    } else if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
       // A password is never copied out of the page, not even inside the extension.
       // The agent only needs to know whether the field is already filled.
-      if (el instanceof HTMLInputElement && el.type === 'password') {
-        element.value = el.value ? '••••••••' : '';
-      } else if (el.value) {
-        element.value = el.value.slice(0, 500);
+      if (el.tagName === 'INPUT' && form.type === 'password') {
+        element.value = form.value ? '••••••••' : '';
+      } else if (form.value) {
+        element.value = form.value.slice(0, 500);
       }
     } else if (el.getAttribute('contenteditable') !== null) {
       const text = (el.textContent ?? '').trim();
@@ -239,18 +257,19 @@ function collectImageCandidates(viewport: { w: number; h: number }, maxImages: n
   const out: ImageCandidate[] = [];
   let id = -1;
 
-  for (const el of deepQueryAll(document, 'img, canvas, video, svg')) {
+  for (const { el, dx, dy } of deepQueryAll(document, 'img, canvas, video, svg')) {
     if (out.length >= maxImages) break;
-    if (!isVisibleInViewport(el, viewport)) continue;
+    if (!isVisibleInViewport(el, viewport, dx, dy)) continue;
 
-    const bbox = toRect(el.getBoundingClientRect());
+    const bbox = toRect(el.getBoundingClientRect(), dx, dy);
     // Icons and tracking pixels are not worth a model pass.
     if (bbox.w < 24 || bbox.h < 24) continue;
 
     const kind = el.tagName.toLowerCase() as ImageCandidate['kind'];
+    const image = el as Element & { alt?: string; currentSrc?: string; src?: string };
     const hint =
-      el instanceof HTMLImageElement
-        ? imageHint(el.alt ?? '', el.className ?? '', el.currentSrc || el.src || '')
+      el.tagName === 'IMG'
+        ? imageHint(image.alt ?? '', el.className ?? '', image.currentSrc || image.src || '')
         : imageHint('', typeof el.className === 'string' ? el.className : '', '');
 
     out.push({ elementId: id--, bbox, kind, hint: hint ?? undefined });

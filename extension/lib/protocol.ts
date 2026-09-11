@@ -176,6 +176,16 @@ export interface DomSnapshot {
   elements: PageElement[];
   textFindings: TextFinding[];
   imageCandidates: ImageCandidate[];
+  /**
+   * Regions of the screen we were not allowed to look inside — cross-origin frames,
+   * `<embed>`, `<object>`. Same-origin frames are *not* here: those are traversed
+   * like any other scope (lib/dom/deep.ts).
+   *
+   * The pipeline paints over them. "We scanned it and found nothing" is a claim we
+   * cannot make about a region we could not read, and a payment iframe is exactly
+   * the kind of frame that carries a card number.
+   */
+  opaqueFrames: Rect[];
   /** ms spent inside the content script. */
   durationMs: number;
 }

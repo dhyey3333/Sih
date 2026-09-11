@@ -8,8 +8,10 @@
  * Returns one object per page. The caller aggregates.
  */
 async function runEval(options) {
-  const { buildSnapshot, detectionsFromFields, detectionsFromText, fuseDetections, Vault, DEMO_PROFILE, VisionLayer, deepQueryAll } =
-    window.__privagent;
+  const {
+    buildSnapshot, detectionsFromFields, detectionsFromText, detectionsFromOpaqueFrames,
+    fuseDetections, Vault, DEMO_PROFILE, VisionLayer, deepQueryAll,
+  } = window.__privagent;
 
   const started = performance.now();
 
@@ -46,17 +48,22 @@ async function runEval(options) {
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   };
 
-  // Deep, for the same reason the snapshot is: annotations inside a web component
-  // are unreachable to a plain querySelectorAll, and scoring against an empty truth
-  // set would report a perfect page.
+  // Deep, for the same reason the snapshot is: annotations inside a web component or
+  // a same-origin frame are unreachable to a plain querySelectorAll, and scoring
+  // against an empty truth set would report a perfect page. `dx`/`dy` move the rect
+  // out of the scope it was measured in and into the viewport the capture covers —
+  // the same discipline the pipeline follows.
   const truth = deepQueryAll(document, '[data-pii]')
-    .map((el) => ({
-      type: el.getAttribute('data-pii'),
-      // The literal value on screen, used by the leak test. Never leaves this page.
-      text: (el.tagName === 'IMG' ? '' : (el.value ?? el.textContent ?? '')).trim(),
-      rect: truthRect(el),
-      tag: el.tagName.toLowerCase(),
-    }))
+    .map(({ el, dx, dy }) => {
+      const rect = truthRect(el);
+      return {
+        type: el.getAttribute('data-pii'),
+        // The literal value on screen, used by the leak test. Never leaves this page.
+        text: (el.tagName === 'IMG' ? '' : (el.value ?? el.textContent ?? '')).trim(),
+        rect: { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h },
+        tag: el.tagName.toLowerCase(),
+      };
+    })
     .filter((t) => t.rect.w >= 2 && t.rect.h >= 2 && t.rect.y + t.rect.h > 0 && t.rect.y < innerHeight);
 
   /* ---------- a stand-in capture ---------- */
@@ -123,6 +130,9 @@ async function runEval(options) {
     const raw = [
       ...detectionsFromFields(snapshot.elements, vault),
       ...detectionsFromText(snapshot, vault),
+      // Regions we were not allowed to read. Part of the shipped pipeline, so part
+      // of what is scored — leaving them out would flatter the DOM-only column.
+      ...detectionsFromOpaqueFrames(snapshot),
       ...visionDetections,
     ];
     const detections = fuseDetections(raw, { pad: 3, bounds: snapshot.viewport });

@@ -67,16 +67,16 @@ All seven milestones are done and measured. See [docs/PROGRESS.md](docs/PROGRESS
 | | Demo site | Holdout |
 |---|---|---|
 | PII detection precision | **1.000** | **1.000** |
-| PII detection recall | **0.978** over 45 items | **0.905** over 42 items |
+| PII detection recall | **0.978** over 45 items | **0.913** over 46 items |
 | Perception time | **2–27 ms per page**, no model loaded | |
 
 The holdout is pages in `eval/holdout/` that are never demonstrated. Four were never looked at
 while a rule was written — a label-less SPA, a 2005 table-layout government portal, a bilingual
 statement with no form controls, a support transcript where every value sits in prose. Their
 first blind run read **recall 0.784**, and the gap was the point: they found three real gaps,
-all now fixed and pinned by tests. A fifth page holds shadow-DOM traversal in place — before
-that, a form built from web components was invisible to the DOM layer entirely, which was a leak
-on a whole class of modern site. Precision never moved off 1.000, on either set, against
+all now fixed and pinned by tests. Two further pages hold shadow-DOM and iframe traversal in
+place — before those, a form inside a web component or an `<iframe>` was invisible to the DOM
+layer entirely, which was a leak on two whole classes of modern site. Precision never moved off 1.000, on either set, against
 deliberate decoys: order numbers, a Luhn-invalid SKU, a PAN-shaped scheme code, a vehicle
 registration, a public helpline.
 
@@ -89,7 +89,7 @@ registration, a public helpline.
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
 | Handled with no request at all | **5 of 9 fields** (L0: the page declared the field, the vault had the value) |
-| Tests | 415 passing (327 extension, 68 server, 20 ml) |
+| Tests | 421 passing (333 extension, 68 server, 20 ml) |
 
 **On-device vision**, YuNet via onnxruntime-web:
 
@@ -114,9 +114,10 @@ back with OCR, and no ground-truth value is recoverable from any page.
 
 | | |
 |---|---|
-| Dataset | 1,140 images, 15,056 boxes, **zero manual annotation** |
-| val mAP50 | **0.809** (test 0.716, on held-out page layouts) |
-| Inference | 91 ms |
+| Dataset | 2,280 images, 30,238 boxes, **zero manual annotation** |
+| val mAP50 | **0.900** (mAP50-95 0.759) on held-out page *layouts*, not held-out images |
+| test mAP50 | 0.934 — higher than val because its two recipes carry fewer classes; both are reported |
+| Inference | 184 ms at 448 px |
 
 Labels come from the page's own `data-pii` attributes, read back with
 `getBoundingClientRect()` — so training labels and eval ground truth are literally the same
@@ -127,7 +128,8 @@ because it is given a different ONNX runtime: it has no WebGPU, so the WebGPU ha
 combined binary is 14 MB that could never execute. Neither number is what you pay per page — the
 models load lazily, and a screen the DOM layer handles alone costs 2–27 ms and zero megabytes.
 
-**Not done yet, stated plainly.** There is **no real-screenshot test set** — everything measured
+**Not done yet, stated plainly.** The detector is trained entirely on pages our own generator
+drew. There is **no real-screenshot test set** — everything measured
 is the demo site, the holdout, or synthetic pages, and hand-labelled screenshots of real portals
 are the honest next test. The VLM path is exercised end to end over a real socket, but against a
 **protocol conformance stub**, not model weights: it proves the request shape, the prompt and the
@@ -210,7 +212,7 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 |---|---|
 | `npm run dev` / `dev:firefox` | run the extension |
 | `npm run build` / `build:firefox` / `build:all` | production builds |
-| `npm test` | 327 unit tests |
+| `npm test` | 333 unit tests |
 | `npm run assets` | restage the ORT WASM binaries from node_modules |
 | `npm run compile` | typecheck |
 | `npm run build:domcheck` | standalone bundle for scoring a page |

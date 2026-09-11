@@ -12,7 +12,7 @@ Status board. Updated at the end of every milestone (CLAUDE.md).
 | M5 Custom detector | ✅ synthetic data engine, training, ONNX export, integrated; OCR on image regions |
 | M6 Eval harness | ✅ `uv run python -m eval.run_all` rebuilds every number |
 | M7 Polish | ✅ redesigned side panel, L0 local-only steps, Firefox lint pass, submission + demo docs |
-| M8 Hardening | ✅ new side panel, blind holdout set, shadow-DOM traversal, per-target ORT (−30% on Firefox), live VLM path, packed-extension smoke test |
+| M8 Hardening | ✅ new side panel, blind holdout set, shadow-DOM + iframe traversal, retrained detector (mAP50 0.900), per-target ORT (−30% on Firefox), live VLM path, packed-extension smoke test |
 
 ---
 
@@ -96,26 +96,48 @@ name belonging to someone who is not in the vault (no NER, by choice — D4), an
 is a bare ten-digit number with no context word anywhere near it, which cannot be
 separated from an order id without giving up the precision column.
 
-### Shadow DOM — the leak the holdout led to
+### Shadow DOM and iframes — the leaks the holdout led to
 
-`document.querySelectorAll` does not enter a shadow root, and a `TreeWalker` will not
-cross into one. A form built from web components — most modern design systems, and a
-growing number of portals — therefore looked to the DOM layer like a page with **no
-form on it at all**: nothing classified, nothing redacted, nothing for the agent to
-act on, while the values sat in the screenshot as usual.
+`document.querySelectorAll` does not enter a shadow root, a `TreeWalker` will not
+cross into one, and neither reaches inside an `<iframe>`. A form built from web
+components — most modern design systems — or a form hosted in a frame — a great many
+portals — therefore looked to the DOM layer like a page with **no form on it at all**:
+nothing classified, nothing redacted, nothing for the agent to act on, while the
+values sat in the screenshot as usual.
 
-`lib/dom/shadow.ts` walks open roots; the element scan, the image scan and the text
-walker all use it, and so does the eval harness's ground-truth collection — otherwise
-a web-component page would score against an empty truth set and report perfect.
+`lib/dom/deep.ts` walks open shadow roots and same-origin frames. The element scan,
+the image scan, the text walker and the eval harness's own ground-truth collection all
+use it — otherwise a web-component page would score against an empty truth set and
+report perfect. Each scope carries the offset from its viewport to the top-level one,
+added to every rect exactly once; a shadow root inherits its host's, a frame adds its
+content-box origin.
 
-`eval/holdout/webcomponent.html` covers four fields in open roots, three in a nested
-component, and one in a **closed** root. Reachable seven: 1.000 / 1.000, decoys left
-alone. The closed one is annotated `data-unreachable`, not `data-pii`: nothing in a
-content script can read a closed root, so scoring it as a miss would imply a fix
-exists. This page is **not blind** — the traversal was written first — and is labelled
-a regression test wherever it appears.
+A **cross-origin** frame cannot be read by anyone. Its region is painted over instead
+(`⟦FRAME_n⟧`), because "we scanned it and found nothing" is not a claim available
+about a region we were never allowed to look at — and a hosted payment form is exactly
+that region. The content script cannot reach inside one either, so covering it costs
+the agent nothing it could have used. One toggle turns it off, and says in the log
+what was given up.
 
-Holdout aggregate: **precision 1.000, recall 0.905 over 42 items.**
+**The bug underneath.** An element inside a frame belongs to *that frame's* realm, so
+`el instanceof HTMLInputElement` is **false** for it. The first working traversal
+found every field, labelled each one correctly, and read `null` for every value —
+which is indistinguishable from an empty form, and would have shipped a frame full of
+legible PII under a clean egress report. Every `instanceof HTML*Element` in the DOM
+layer is now a tag test.
+
+`eval/holdout/webcomponent.html` (four fields in open roots, three in a nested
+component, one in a **closed** one) and `eval/holdout/frames.html` (a same-origin
+`srcdoc` form, a sandboxed opaque-origin card form) both score 1.000 / 1.000 on what
+is reachable. The closed root is annotated `data-unreachable`, not `data-pii`: nothing
+in a content script can read one, so scoring it as a miss would imply a fix exists.
+Both pages are **not blind** — the traversal was written first — and are labelled
+regression tests wherever they appear.
+
+A fourth rule gap surfaced with them: the name rule accepted "Name of the candidate"
+but not "Candidate name". Indian forms use both word orders about equally.
+
+Holdout aggregate: **precision 1.000, recall 0.913 over 46 items.**
 
 ### One ONNX runtime per target
 
@@ -163,20 +185,49 @@ a rename takes the whole surface down at runtime; this catches it as a spelling 
 | | |
 |---|---|
 | PII detection, demo site | precision 1.000, recall 0.978 over 45 items |
-| PII detection, **holdout** | precision 1.000, recall **0.905** over 42 items |
-| Leak test | **0**, on all nine pages |
+| PII detection, **holdout** | precision 1.000, recall **0.913** over 46 items |
+| Leak test | **0**, on all ten pages |
+| Custom detector | val mAP50 **0.900** (was 0.809), test 0.934, on 2,280 self-labelled pages |
+| Latency, `kyc.html` | 451 ms cold, **42 ms** warm on an idle machine |
 | Packed | Chrome 45.7 MB, Firefox 32.2 MB |
 | Firefox `web-ext lint` | 0 errors, 6 warnings (all pre-existing and explained) |
-| Tests | **415** — 327 extension, 68 server, 20 ml |
+| Tests | **421** — 333 extension, 68 server, 20 ml |
 | Packed extension boots clean | ✅ `eval.smoke_extension` |
+
+### The detector, retrained
+
+The 12-epoch smoke run is gone. 2,280 generated pages (up from 1,140), 40 epochs at
+448 px on MPS, ~93 minutes:
+
+| | Before | After |
+|---|---|---|
+| val mAP50 | 0.809 | **0.900** |
+| val mAP50-95 | 0.586 | **0.759** |
+| test mAP50 | 0.716 | **0.934** |
+| Inference | 91 ms @384 px | 184 ms @448 px |
+
+The test split reading *higher* than val is the recipe split doing its job, not a
+mistake: its two recipes (`empty_form`, `notice`) carry fewer and easier classes than
+the validation pair (`statement`, `kyc_with_document`). A split by image would have
+produced two numbers that agreed with each other and told us nothing.
+
+### A note on the latency figures
+
+This milestone's eval was run twice, and the two runs disagree by 4×: `kyc.html` read
+1,668 ms cold / 204 ms warm during the first, and 451 ms / 42 ms during the second.
+The difference is not the code — it is that the first ran while a training job had the
+CPU. The idle figures are quoted because that is the machine a demo runs on, and the
+loaded ones are recorded here because that is what a busy one does.
 
 ### Still not done
 
-- **No real-screenshot test set.** The holdout is the closest thing, and it is still
-  pages we wrote. Hand-labelled screenshots of real portals, never trained on, is the
-  test we have not run.
+- **The detector is trained entirely on pages our own generator drew.** Good numbers
+  on held-out *layouts*, but there is no real screenshot anywhere in that pipeline.
+- **No real-screenshot test set** for the DOM layer either. The holdout is the closest
+  thing, and it is still pages we wrote.
 - The live VLM test runs against a protocol stub, not weights.
-- Closed shadow roots cannot be read, by design of the platform.
+- Closed shadow roots and cross-origin frames cannot be read, by design of the
+  platform. We cover the frames; a closed root we can only report.
 - A backup demo video still has not been recorded.
 
 ---

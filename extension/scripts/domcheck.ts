@@ -13,9 +13,14 @@
 
 import { DEMO_PROFILE } from '../lib/demo-profile';
 import { buildSnapshot } from '../lib/dom/snapshot';
-import { deepQueryAll } from '../lib/dom/shadow';
+import { deepQueryAll, opaqueFrames } from '../lib/dom/deep';
 import { scorePage } from '../lib/eval/score-page';
-import { detectionsFromFields, detectionsFromText, runPipeline } from '../lib/pipeline';
+import {
+  detectionsFromFields,
+  detectionsFromOpaqueFrames,
+  detectionsFromText,
+  runPipeline,
+} from '../lib/pipeline';
 import { scanText } from '../lib/pii/validators';
 import { classifyField } from '../lib/pii/dom-heuristics';
 import { fuseDetections } from '../lib/redact/fuse';
@@ -29,12 +34,14 @@ import { OcrEngine } from '../lib/vision/ocr';
 const api = {
   buildSnapshot,
   scorePage,
-  /** Ground truth has to be collected the same way the snapshot is — across
-      shadow boundaries — or a web-component page scores against an empty set. */
+  /** Ground truth has to be collected the same way the snapshot is — across shadow
+      and frame boundaries — or a web-component page scores against an empty set. */
   deepQueryAll,
+  opaqueFrames,
   DEMO_PROFILE,
   detectionsFromFields,
   detectionsFromText,
+  detectionsFromOpaqueFrames,
   runPipeline,
   fuseDetections,
   renderRedacted,

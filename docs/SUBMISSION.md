@@ -59,19 +59,37 @@ Three perception layers feed one element list:
 |---|---|---|
 | DOM | `autocomplete`, `<label>`, input types, text nodes with exact rects | 2–27 ms |
 | Vision (YuNet) | Faces the DOM cannot describe | 50 ms WebGPU / 181 ms WASM |
-| Vision (custom) | Canvas-rendered inputs and buttons — the case where the DOM is *empty* | 91 ms |
+| Vision (custom) | Canvas-rendered inputs and buttons — the case where the DOM is *empty* | 184 ms |
 | OCR | Text inside images | 1.4 s cold, ~2 ms cached |
 
 Set-of-Mark numbering is drawn on the screenshot after redaction, so the model
 returns an element id rather than guessing a pixel coordinate.
+
+The DOM layer also crosses the two boundaries the platform puts in its way: open
+shadow roots and same-origin frames. Neither is exotic — most design systems build
+forms from web components, and a great many portals put the form in an `<iframe>` —
+and before that traversal existed, both looked to the DOM layer like a page with no
+form on it. A **cross-origin** frame cannot be read by anyone, so its region is
+painted over rather than sent: "we scanned it and found nothing" is not a claim
+available about a region we were never allowed to look at.
+
+The custom detector, for the case where the DOM is genuinely empty (a canvas app, a
+PDF page), is trained on 2,280 pages our generator draws and labels itself:
+
+| | |
+|---|---|
+| val mAP50 | **0.900** (mAP50-95 0.759), precision 0.92 / recall 0.867 |
+| test mAP50 | 0.934 — its recipes carry fewer classes, so it reads higher than val |
+| Split | by **recipe**, not by image: near-identical layouts must not straddle it |
+| Annotation | zero by hand — the generator writes `data-pii` and Playwright reads the boxes back |
 
 ### 2. Precision / recall of sensitive & PII detection — 20%
 
 |  | Demo site | **Holdout** |
 |---|---|---|
 | **Precision** | **1.000** | **1.000** |
-| **Recall** | 0.978 over 45 items | **0.905 over 42 items** |
-| F1 | 0.989 | 0.950 |
+| **Recall** | 0.978 over 45 items | **0.913 over 46 items** |
+| F1 | 0.989 | 0.955 |
 
 The second column is the one to look at. `eval/holdout/` holds pages that are never
 demonstrated. Four of them were not looked at while any rule was written or tuned: a
@@ -82,12 +100,12 @@ the point of building them — they found three real gaps (abbreviated field nam
 `BANK_ACC_NO`, account numbers named in prose, and `contenteditable` fields naming
 themselves), each now fixed and pinned by a unit test (D22).
 
-The fifth page, `webcomponent.html`, is **not blind** and is labelled as such: it is
-a regression test for shadow-DOM traversal, written after the fix (D24). Before that
-fix a form built from web components was invisible to the DOM layer entirely — no
-field classified, nothing redacted, while the values were still in the screenshot.
-That was a leak on a whole class of modern site, and it is the single most important
-thing the holdout exercise produced.
+Two further pages are **not blind** and are labelled as such: `webcomponent.html` and
+`frames.html` are regression tests, written after the traversal they hold in place
+(D24). Before it, a form inside a web component or inside an `<iframe>` was invisible
+to the DOM layer entirely — no field classified, nothing redacted, while the values
+were still in the screenshot. That was a leak on two whole classes of modern site,
+and it is the single most important thing the holdout exercise produced.
 
 Precision is 1.000 *against deliberate decoys*, on both sets: 12-digit order and
 reference numbers, a Luhn-invalid card labelled as an SKU, a PAN-shaped string with
@@ -107,8 +125,8 @@ an order id without giving up the precision column.
 
 | | |
 |---|---|
-| Pixel recall | 78–100% per page; 100% on the two most sensitive |
-| **Leak test** | **0**, on all nine pages |
+| Pixel recall | 78–100% per page; 100% on six of the ten |
+| **Leak test** | **0**, on all ten pages |
 
 The leak test is the one that matters. It renders the redacted image exactly as the
 extension renders it, reads it back with OCR, and counts ground-truth values still
@@ -151,12 +169,17 @@ per frame against ~79 ms on WASM. The adapter is now inspected and declined.
 
 | | Cold (first look at a page) | Warm (every step after) |
 |---|---|---|
-| `kyc.html` | 1,668 ms | **204 ms** |
-| `profile.html` | 801 ms | **180 ms** |
-| `bank.html` | 160 ms | **182 ms** |
-| `apply.html` | 164 ms | **137 ms** |
+| `kyc.html` | 451 ms | **42 ms** |
+| `profile.html` | 176 ms | **38 ms** |
+| `bank.html` | 43 ms | **39 ms** |
+| `apply.html` | 40 ms | **38 ms** |
 
 Server round trip: 52 ms network + 4.8 ms server. Payload 42 KB.
+
+These are from an otherwise idle laptop. An earlier run of the same command, taken
+while a training job had the CPU, read 1,668 ms cold and 204 ms warm on `kyc.html` —
+a 4× spread on the same code. We quote the idle figures because that is the machine a
+demo runs on, and state the loaded ones because that is what a busy one does.
 
 And the fastest request is the one never made: **L0** handles a step entirely
 on-device when the page has *declared* what a field is (`autocomplete="email"`) and
@@ -193,7 +216,7 @@ Aadhaar, PAN, DOB or UPI.
 
 | Command | What it checks |
 |---|---|
-| `cd extension && npm test` | 327 unit tests — validators, heuristics, fusion, agent gates, panel markup |
+| `cd extension && npm test` | 333 unit tests — validators, heuristics, fusion, agent gates, panel markup |
 | `cd server && uv run pytest` | 68 tests, including the VLM path over a real socket |
 | `cd ml && uv run --group dev pytest` | 20 tests over the data engine |
 | `uv run python -m eval.run_all` | Every number in this document, in a real browser |
@@ -202,6 +225,9 @@ Aadhaar, PAN, DOB or UPI.
 
 ## Honest limitations
 
+- **The detector is trained on synthetic pages only.** val mAP50 0.900, test 0.934
+  over recipes it never saw — but every one of those pages was drawn by our own
+  generator.
 - **No real-screenshot test set.** Everything measured is the demo site, the holdout,
   or synthetic pages. Hand-labelled screenshots of real portals, never trained on,
   is the honest next test.

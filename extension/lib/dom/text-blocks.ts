@@ -12,7 +12,7 @@
  */
 
 import type { Rect } from '../protocol';
-import { shadowRootsUnder } from './shadow';
+import { scopesUnder } from './deep';
 
 export interface TextPiece {
   node: Text;
@@ -36,6 +36,13 @@ export interface TextBlock {
    * biggest source of missed detections on profile and statement pages.
    */
   labelContext: string;
+  /**
+   * CSS pixels to add to every rect measured inside this block, to move it from the
+   * scope it was found in into the top-level viewport. Zero for the top document;
+   * non-zero for text inside a same-origin frame (lib/dom/deep.ts).
+   */
+  dx: number;
+  dy: number;
 }
 
 const BLOCK_SELECTOR =
@@ -60,12 +67,13 @@ export function collectTextBlocks(root: ParentNode & Node, options: CollectOptio
   const blocks = new Map<Element, TextBlock>();
   let budget = maxChars;
 
-  // A TreeWalker stops at a shadow boundary, so each open root is walked in turn.
-  // Without this, text rendered by a web component is not scanned at all — it is
-  // still in the screenshot, so it would go out unredacted (lib/dom/shadow.ts).
-  const texts: Text[] = [];
-  for (const scope of [root, ...shadowRootsUnder(root)]) {
-    const walker = document.createTreeWalker(scope as Node, NodeFilter.SHOW_TEXT, {
+  // A TreeWalker stops at a shadow boundary and will not enter a frame, so every
+  // reachable scope is walked in turn. Without this, text rendered by a web component
+  // or inside a same-origin frame is not scanned at all — and it is still in the
+  // screenshot, so it would go out unredacted (lib/dom/deep.ts).
+  const texts: Array<{ node: Text; dx: number; dy: number }> = [];
+  for (const scope of scopesUnder(root)) {
+    const walker = document.createTreeWalker(scope.root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         const parent = node.parentElement;
         if (!parent || SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
@@ -74,11 +82,11 @@ export function collectTextBlocks(root: ParentNode & Node, options: CollectOptio
       },
     });
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      texts.push(node as Text);
+      texts.push({ node: node as Text, dx: scope.dx, dy: scope.dy });
     }
   }
 
-  for (const text of texts) {
+  for (const { node: text, dx, dy } of texts) {
     if (budget <= 0) break;
     const parent = text.parentElement;
     if (!parent) continue;
@@ -89,14 +97,18 @@ export function collectTextBlocks(root: ParentNode & Node, options: CollectOptio
     const rect = range.getBoundingClientRect();
     range.detach?.();
     if (rect.width < 1 || rect.height < 1) continue;
-    if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= viewport.h || rect.left >= viewport.w) {
+    // Visibility is judged against the viewport the screenshot covers, so the rect
+    // is moved out of its own scope first.
+    const top = rect.top + dy;
+    const left = rect.left + dx;
+    if (top + rect.height <= 0 || left + rect.width <= 0 || top >= viewport.h || left >= viewport.w) {
       continue;
     }
 
     const container = parent.closest(BLOCK_SELECTOR) ?? parent;
     let block = blocks.get(container);
     if (!block) {
-      block = { text: '', pieces: [], container, labelContext: labelContextFor(container) };
+      block = { text: '', pieces: [], container, labelContext: labelContextFor(container), dx, dy };
       blocks.set(container, block);
     }
 
@@ -184,7 +196,9 @@ export function rectsForSpan(block: TextBlock, start: number, end: number): Rect
 
   const rects = [...range.getClientRects()]
     .filter((r) => r.width >= 1 && r.height >= 1)
-    .map((r) => ({ x: r.left, y: r.top, w: r.width, h: r.height }));
+    // Into the top-level viewport, exactly once. `getClientRects` is relative to the
+    // scope the text lives in, which is not the one the screenshot was taken of.
+    .map((r) => ({ x: r.left + block.dx, y: r.top + block.dy, w: r.width, h: r.height }));
   range.detach?.();
   return rects;
 }

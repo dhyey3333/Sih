@@ -77,9 +77,24 @@ uv sync --group train
 uv run python train.py --data data/synth/data.yaml --epochs 80
 ```
 
-On a Mac this runs on MPS and is a **smoke test** — enough to prove the loop, the
-loss and the export are wired correctly. A model worth shipping needs a real GPU;
-Colab and Kaggle both have free T4s:
+On a Mac this runs on MPS. The shipped model is 40 epochs at 448 px over 2,280
+generated pages, about 93 minutes:
+
+| | |
+|---|---|
+| val | mAP50 **0.900**, mAP50-95 0.759, precision 0.92, recall 0.867 |
+| test | mAP50 0.934, mAP50-95 0.761 |
+| export | 10.0 MB ONNX, opset 17, static 448×448 |
+
+The test split reads *higher* than validation, which is the recipe split doing its
+job rather than a mistake: its two recipes (`empty_form`, `notice`) carry fewer and
+easier classes than the validation pair (`statement`, `kyc_with_document`). A split by
+image would have produced two numbers that agreed with each other and told us nothing.
+
+Every one of those pages was drawn by the generator in `synth/`. Good numbers on
+held-out *layouts* are not the same as good numbers on real screenshots, and we have
+not measured the second. For more capacity, a CUDA GPU — Colab and Kaggle both have
+free T4s — makes 960 px practical:
 
 ```bash
 !pip install ultralytics

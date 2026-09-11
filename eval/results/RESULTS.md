@@ -16,11 +16,15 @@ Scored against each page's own `data-pii` ground truth, with the demo profile lo
 
 ### Holdout — pages no rule was written against
 
-Four pages that live outside `demo-site/`, are never demonstrated, and were not
-looked at while any detector rule was written or tuned: a label-less SPA, a 2005
-table-layout portal, a bilingual statement with no form controls at all, and a
-support transcript where every value sits in running prose. This is the number
-that says whether the approach generalises.
+Pages that live outside `demo-site/` and are never demonstrated. Four of them —
+a label-less SPA, a 2005 table-layout portal, a bilingual statement with no form
+controls at all, and a support transcript where every value sits in running prose
+— were not looked at while any detector rule was written or tuned. Their first
+blind run read precision 1.000 / recall 0.784; what it found is in DECISIONS D22.
+
+`webcomponent.html` is the exception and is **not blind**: shadow-DOM traversal
+was written first and the page added to hold it in place (D24). It is a
+regression test, counted here but labelled so the distinction is not lost.
 
 | Page | Items | Precision | Recall | F1 | Pixel recall |
 |---|---|---|---|---|---|
@@ -29,7 +33,8 @@ that says whether the approach generalises.
 | `statement.html` | 8 | 1.000 | 0.750 | 0.857 | 78.1% |
 | `support.html` | 11 | 1.000 | 0.909 | 0.952 | 97.3% |
 | `webcomponent.html` | 5 | 1.000 | 1.000 | 1.000 | 100.0% |
-| **all** | **42** | **1.000** | **0.905** | **0.950** | — |
+| `frames.html` | 4 | 1.000 | 1.000 | 1.000 | 100.0% |
+| **all** | **46** | **1.000** | **0.913** | **0.955** | — |
 
 ### What the vision layer adds
 
@@ -56,6 +61,7 @@ with OCR. `Recovered` counts ground-truth values still legible afterwards.
 | `statement.html` | 0 | 0 | **0** |
 | `support.html` | 0 | 0 | **0** |
 | `webcomponent.html` | 0 | 0 | **0** |
+| `frames.html` | 41 | 0 | **0** |
 
 ## Client resources
 
@@ -79,8 +85,8 @@ with OCR. `Recovered` counts ground-truth values still legible afterwards.
 
 | Requested | Actually used | Session load | Inference p50 | Min | Max | First run |
 |---|---|---|---|---|---|---|
-| webgpu | wasm *(fell back)* | 1101 ms | 112 ms | 72 ms | 126 ms | 91 ms |
-| wasm | wasm | 35 ms | 112 ms | 103 ms | 189 ms | 109 ms |
+| webgpu | wasm *(fell back)* | 106 ms | 38 ms | 36 ms | 41 ms | 47 ms |
+| wasm | wasm | 12 ms | 36 ms | 34 ms | 40 ms | 37 ms |
 
 Fallback reason: `software WebGPU adapter (google swiftshader); WASM is faster`.
 
@@ -95,7 +101,7 @@ not changed, so OCR comes from cache — which is what a multi-step task actuall
 
 | Page | DOM snapshot | Detect + fuse | Vision | OCR | **Cold** | **Warm** |
 |---|---|---|---|---|---|---|
-| `kyc.html` | 30.2 ms | 1.7 ms | 333.9 ms | 1614.7 ms | **1980.5 ms** | **268.7 ms** |
-| `profile.html` | 5.6 ms | 1 ms | 205.8 ms | 655.7 ms | **868.1 ms** | **147.7 ms** |
-| `bank.html` | 5.6 ms | 4.6 ms | 142 ms | 0 ms | **152.2 ms** | **291.4 ms** |
-| `apply.html` | 13.1 ms | 0.2 ms | 162.1 ms | 0 ms | **175.4 ms** | **148.5 ms** |
+| `kyc.html` | 5.3 ms | 0.5 ms | 87.9 ms | 357.6 ms | **451.3 ms** | **42.2 ms** |
+| `profile.html` | 1 ms | 0.2 ms | 41 ms | 133.8 ms | **176 ms** | **38 ms** |
+| `bank.html` | 1.2 ms | 0.2 ms | 41.9 ms | 0 ms | **43.3 ms** | **38.6 ms** |
+| `apply.html` | 1.1 ms | 0 ms | 39.1 ms | 0 ms | **40.2 ms** | **37.5 ms** |

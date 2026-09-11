@@ -368,8 +368,11 @@ same layout, different fake name. The validation score then measures memorisatio
 reads far too well. Holding whole recipes out is the only way the number answers the
 question we care about: does this work on a page we have never seen?
 
-**It shows.** val mAP50 0.809 against test 0.716, on recipes with a different class
-mix. That gap is the split doing its job, and we report both.
+**It shows, and not always in the direction you expect.** val mAP50 **0.900** against
+test **0.934** — the test split reads *higher*, because its two recipes (`empty_form`,
+`notice`) carry fewer and easier classes than the validation pair (`statement`,
+`kyc_with_document`). A split by image would have produced two numbers that agreed
+with each other and told us nothing. Both are reported, with the reason.
 
 ---
 
@@ -411,8 +414,14 @@ gap was the useful output of the whole exercise.
    keyword rule correctly declined to fire. `classifyField` then rejected it anyway
    for not being an `<input>` — which is most design-system text fields.
 
-Fixing those took recall to **0.892** with precision still at 1.000, and each fix is
-pinned by a unit test so it cannot quietly revert.
+Fixing those took recall to 0.892 with precision still at 1.000, and each fix is
+pinned by a unit test so it cannot quietly revert. Two regression pages added later
+(D24) bring the set to **0.913 over 46 items**, precision still 1.000.
+
+A fourth gap surfaced when the frames page went in: the name rule accepted "Name of
+the candidate" but not "Candidate name". Indian forms write both about equally often,
+and a rule that takes only one word order is a rule that works on the examples you
+happened to write.
 
 **The honest caveat.** 0.784 is the only truly blind number this set will ever
 produce; everything after it was measured on pages that have now been looked at. The
@@ -444,31 +453,73 @@ would choose. That still needs weights, and is still listed as a limitation.
 
 ---
 
-## D24 — Cross shadow boundaries; say plainly that closed roots are unreachable
+## D24 — Cross every boundary we are allowed to; cover the ones we are not
 
-**Decision.** `lib/dom/shadow.ts` walks open shadow roots, and both the element scan
-and the text walker use it. A closed root is left alone and documented as a limit.
+**Decision.** `lib/dom/deep.ts` walks **open shadow roots** and **same-origin frames**,
+and the element scan, the image scan, the text walker and the eval harness's own
+ground-truth collection all use it. A **closed** shadow root and a **cross-origin**
+frame cannot be read; the frame's region is painted over instead, and the closed root
+is documented.
 
-**Why.** `document.querySelectorAll` does not enter a shadow root, and a `TreeWalker`
-will not cross into one. A form built from web components — which is most modern
-design systems, and a growing number of government and banking portals — therefore
-looked to the DOM layer like a page with no form on it: no field classified, nothing
-redacted, nothing for the agent to act on. The value was still in the screenshot, so
-this was not merely a missed feature; it was a leak on a whole class of site, and the
-claim "works on any page, in any browser" was not true while it held.
+**Why.** `document.querySelectorAll` does not enter a shadow root, a `TreeWalker` will
+not cross into one, and neither reaches inside an `<iframe>`. A form built from web
+components — most design systems — or a form hosted in a frame — a great many portals
+— therefore looked to the DOM layer like a page with no form on it: no field
+classified, nothing redacted, nothing for the agent to act on. The values were still
+in the screenshot, so this was not a missing feature; it was a leak on two whole
+classes of site, while the claim "works on any page" was not true.
 
-**Measured.** `eval/holdout/webcomponent.html` — four fields in open roots, three more
-in a nested component, one in a *closed* one — scores 1.000 / 1.000 on the reachable
-seven, with both decoys (a vehicle registration, a 12-digit pass serial) left alone.
+**Coordinates.** A scope carries the offset from its own viewport to the top-level
+one. A shadow root shares its host's coordinate space and inherits the offset; a
+frame's content starts at the frame's content box and adds one. Every rect read inside
+a scope has that offset added exactly once — the same discipline `Rect` already asks
+for with `dpr`, and the same bug class if you forget.
 
-**Honesty note.** Unlike the other four holdout pages, this one is **not blind**: the
-traversal was written first and the page added to hold it in place. It is a
-regression test, and it is labelled as one. The blind number remains the 0.784 that
-the original four produced on their first run.
+**Measured.** `eval/holdout/webcomponent.html` (four fields in open roots, three in a
+nested component, one in a closed one) and `eval/holdout/frames.html` (a same-origin
+`srcdoc` form and a sandboxed, opaque-origin card form) both score 1.000 / 1.000 on
+what is reachable, with every decoy left alone.
 
-**The closed-root limit.** `attachShadow({mode: 'closed'})` withholds the root from
-every caller, including a content script, by design. Nothing can read it, so nothing
-can redact it. The holdout page annotates that field `data-unreachable` rather than
-`data-pii`, because scoring it as a miss would imply a fix exists. If a page uses a
-closed root to render PII, this extension cannot protect it, and the honest answer is
-to say so rather than to quietly score around it.
+**Honesty note.** Unlike the four original holdout pages, these two are **not blind**:
+the traversal was written first and the pages added to hold it in place. They are
+regression tests and are labelled as such. The blind number remains the 0.784 the
+original four produced on their first run.
+
+**What cannot be reached.** `attachShadow({mode: 'closed'})` withholds the root from
+every caller, and same-origin policy withholds a cross-origin frame — both by design,
+and no content script can change either. The closed-root field in the holdout is
+annotated `data-unreachable`, not `data-pii`, because scoring it as a miss would imply
+a fix exists.
+
+---
+
+## D25 — An uninspectable region is painted over, not sent
+
+**Decision.** A cross-origin frame (and `<embed>`, `<object>`) is covered in the
+screenshot, as a `GENERIC` detection with the token `⟦FRAME_n⟧`. One toggle in the
+side panel turns it off.
+
+**Why.** We could not read a character of it, and the content script cannot reach
+inside it either — so the agent could never have acted on it. Sending its pixels
+means asserting "nothing sensitive here" about the one region we never looked at, and
+a hosted payment form is exactly that region. Covering it costs the model nothing it
+could have used.
+
+**What it costs.** A large embed — a map, a video — becomes a black rectangle, which
+removes context the model might have liked, and can push `areaRatio` past the
+structure-only threshold so the step drops to L1. We think that is the correct
+outcome and not a regression: a screen that is mostly regions we could not inspect is
+a screen we should be sending less of, not more. The toggle exists because it is the
+user's screen and the trade is theirs to make; turning it off writes a line in the
+activity log saying what was given up.
+
+**Why not OCR them instead.** Tempting — the machinery exists for ID-card scans. But
+ads are iframes, and OCR over three ad frames on every step would cost hundreds of
+milliseconds for nothing. Covering is O(1) and strictly safer.
+
+**The related bug this found.** An element inside a frame belongs to *that frame's*
+realm, so `el instanceof HTMLInputElement` is **false** for every field we traverse
+into. The first working traversal found all the fields, labelled them correctly, and
+read `null` for every value — which looks exactly like an empty form, and would have
+shipped a frame full of legible PII with a clean egress report. Every `instanceof
+HTML*Element` in the DOM layer is now a tag test.

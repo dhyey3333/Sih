@@ -95,6 +95,16 @@ describe('idioms the holdout found', () => {
     expect(classifyField(field({ type: 'text', label: 'Account name' }))).toBeNull();
   });
 
+  it.each([
+    'Candidate name',
+    'Student name',
+    'Member name',
+    'Name of the candidate',
+    "Applicant's name",
+  ])('reads "%s" as a person name', (label) => {
+    expect(classifyField(field({ type: 'text', label }))?.type).toBe('NAME');
+  });
+
   it('classifies a contenteditable, which is what most design systems ship', () => {
     expect(
       classifyField(field({ tag: 'DIV', editable: true, label: 'Communication address' }))?.type,

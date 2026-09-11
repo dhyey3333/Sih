@@ -62,6 +62,12 @@ export interface PipelineInput {
   visionElements?: VisionElement[];
   /** Force a disclosure level instead of deciding one. */
   forceDisclosure?: DisclosureLevel;
+  /**
+   * Paint over frames we could not inspect. On by default; the side panel exposes
+   * it because covering a large embed (a map, a video) costs the model context, and
+   * the user is entitled to decide that trade for their own screen.
+   */
+  coverOpaqueFrames?: boolean;
 }
 
 export interface PipelineOutput {
@@ -102,6 +108,7 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
   const raw: Detection[] = [
     ...detectionsFromFields(snapshot.elements, vault),
     ...detectionsFromText(snapshot, vault),
+    ...(input.coverOpaqueFrames === false ? [] : detectionsFromOpaqueFrames(snapshot)),
     ...(input.visionDetections ?? []),
   ];
   watch.end('detect');
@@ -248,6 +255,29 @@ export function detectionsFromText(snapshot: DomSnapshot, vault: Vault): Detecti
   });
 
   return out;
+}
+
+/**
+ * Regions we were not allowed to read.
+ *
+ * A cross-origin frame cannot be inspected — and the content script cannot reach
+ * inside one either, so the agent could not have acted on it in any case. Sending
+ * its pixels would mean asserting "nothing sensitive here" about the one part of
+ * the screen we never looked at, and a payment iframe is precisely that part.
+ *
+ * Deliberately *not* keyed on the vault: there is no value to tokenize, only an
+ * area to withhold. One stable token per frame keeps the payload readable.
+ */
+export function detectionsFromOpaqueFrames(snapshot: DomSnapshot): Detection[] {
+  return snapshot.opaqueFrames.map((bbox, i) => ({
+    id: `frame:${i}`,
+    type: 'GENERIC' as const,
+    bbox,
+    confidence: 1,
+    source: 'dom-image' as const,
+    token: `⟦FRAME_${i + 1}⟧`,
+    detail: 'cross-origin frame — could not be inspected',
+  }));
 }
 
 /* ------------------------------------------------------------------ *

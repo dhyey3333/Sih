@@ -116,7 +116,10 @@ const KEYWORD_RULES: readonly KeywordRule[] = [
     name: 'kw:name',
     // Only person-name phrasings. A bare "name" is left alone because it is far
     // more often "Company name", "Product name" or "File name" than a person.
-    pattern: /\b((full|first|last|middle|given|legal|holder'?s?|applicant'?s?|father'?s?|mother'?s?|spouse'?s?|guardian'?s?|nominee'?s?|your)\s*name|surname|name\s*of\s*(the\s*)?(applicant|candidate|student|holder|nominee))\b/,
+    //
+    // Both word orders: Indian forms write "Name of the candidate" and "Candidate
+    // name" about equally often, and the holdout caught us accepting only the first.
+    pattern: /\b((full|first|last|middle|given|legal|holder'?s?|applicant'?s?|candidate'?s?|student'?s?|member'?s?|beneficiary'?s?|employee'?s?|passenger'?s?|father'?s?|mother'?s?|spouse'?s?|guardian'?s?|nominee'?s?|your)\s*name|surname|name\s*of\s*(the\s*)?(applicant|candidate|student|holder|nominee))\b/,
     confidence: 0.9,
   },
   { type: 'GENERIC', name: 'kw:sensitive', pattern: /\b(salary|income|ssn|social\s*security|tax\s*id|gstin|voter\s*id|driving\s*licen[sc]e|licence\s*number|nominee|blood\s*group|pin\b)\b/, confidence: 0.8 },

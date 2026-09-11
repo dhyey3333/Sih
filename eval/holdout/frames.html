@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Fee payment — hosted form</title>
+<!--
+  HOLDOUT PAGE — not part of the demo.
+
+  Idiom: the form lives in an iframe. Extremely common on portals, and it used to
+  make the DOM layer blind: the content script runs in the top frame only, so a
+  same-origin frame's fields were simply not there.
+
+  Two frames, and the difference between them is the whole point:
+
+    · The first is same-origin (`srcdoc`). We can read it, so we traverse it like
+      any other scope and every field is classified and redacted. Its annotations
+      are inside the frame, and the harness reaches them the same way the snapshot
+      does — with the frame's offset added exactly once.
+
+    · The second is sandboxed without `allow-same-origin`, which gives it an opaque
+      origin. `contentDocument` is null: we cannot read a character of it. It is
+      annotated on the *iframe element*, because the only honest thing to detect
+      there is the region itself. A payment iframe is exactly this case, and
+      "we scanned it and found nothing" is not a claim we can make about a region
+      we were never allowed to read.
+
+  All values are fake. Decoys are marked with data-decoy and must NOT be detected.
+-->
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f4f6fa; color: #12161c; }
+  .page { max-width: 660px; margin: 0 auto; padding: 24px 20px 50px; }
+  h1 { font-size: 18px; margin: 0 0 3px; }
+  .sub { font-size: 12px; color: #667085; margin: 0 0 20px; }
+  .panel { background: #fff; border: 1px solid #e3e8ef; border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #667085; margin: 0 0 10px; }
+  iframe { width: 100%; border: 1px solid #e3e8ef; border-radius: 8px; background: #fff; display: block; }
+  .foot { font-size: 11px; color: #7a8594; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Semester fee payment</h1>
+  <p class="sub">Step 3 of 3 · session expires in 9 minutes</p>
+
+  <div class="panel">
+    <h2>Candidate details — same-origin frame</h2>
+    <iframe height="230" title="Candidate details" srcdoc='
+      <style>
+        body { font-family: system-ui, sans-serif; margin: 0; padding: 12px; font-size: 13px; color: #12161c; }
+        label { display: block; font-size: 11px; color: #667085; margin: 8px 0 3px; }
+        input { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; font-size: 12px;
+                border: 1px solid #d6dce5; border-radius: 6px; }
+      </style>
+      <label>Candidate name</label>
+      <input type="text" value="Meera Raghavan" data-pii="NAME" />
+      <label>Aadhaar number</label>
+      <input type="text" value="4174 2180 9677" data-pii="AADHAAR" />
+      <label>Registered mobile</label>
+      <input type="text" value="9421809679" data-pii="PHONE" />
+      <label>Application number</label>
+      <input type="text" value="870000012345" data-decoy="appno" />
+    '></iframe>
+  </div>
+
+  <div class="panel">
+    <h2>Card details — sandboxed, opaque origin</h2>
+    <!-- data-pii on the element itself: the region is the only honest detection. -->
+    <iframe height="150" title="Card details" sandbox="allow-scripts" data-pii="GENERIC" srcdoc='
+      <style>
+        body { font-family: system-ui, sans-serif; margin: 0; padding: 12px; font-size: 13px; }
+        label { display: block; font-size: 11px; color: #667085; margin: 8px 0 3px; }
+        input { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; font-size: 12px;
+                border: 1px solid #d6dce5; border-radius: 6px; }
+      </style>
+      <label>Card number</label>
+      <input type="text" value="4614 6100 3307 6668" />
+      <label>CVV</label>
+      <input type="text" value="317" />
+    '></iframe>
+  </div>
+
+  <p class="foot">
+    <!-- DECOY: a transaction reference and a helpline -->
+    Reference 100000000012 · queries to 1800 233 4455 · receipts are emailed within an hour.
+  </p>
+</div>
+</body>
+</html>

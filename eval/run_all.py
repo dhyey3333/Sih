@@ -46,7 +46,7 @@ PAGES = ("kyc", "profile", "bank", "apply")
 # portal, a bilingual statement with no form controls, a chat transcript where every
 # value sits in running prose. Scored separately, because a number measured on the
 # pages you developed against is not evidence of anything.
-HOLDOUT = ("spa", "legacy", "statement", "support", "webcomponent")
+HOLDOUT = ("spa", "legacy", "statement", "support", "webcomponent", "frames")
 
 VIEWPORT = (1280, 1600)
 
