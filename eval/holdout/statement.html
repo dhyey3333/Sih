@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>खाता विवरण / Account statement</title>
+<!--
+  HOLDOUT PAGE — not part of the demo, never opened while developing a rule.
+
+  Idiom: a dense data table with no form controls at all, and bilingual headings.
+  Every value is a text node inside a <td>, so the field heuristics (autocomplete,
+  input type, <label>) have nothing to work with — only the text layer and its
+  checksums can fire. Devanagari labels also check that the context-word rules are
+  not silently English-only; where they are, the miss shows up here rather than in
+  front of a judge.
+
+  All values are fake. Decoys are marked with data-decoy and must NOT be detected.
+-->
+<style>
+  body { font-family: "Noto Sans", system-ui, sans-serif; margin: 0; background: #fff; color: #14181f; font-size: 13px; }
+  header { padding: 16px 22px; border-bottom: 2px solid #0b3d2c; }
+  h1 { font-size: 16px; margin: 0 0 3px; }
+  .who { font-size: 12px; color: #4a5560; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #e6e9ee; white-space: nowrap; }
+  th { background: #f4f6f8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #55606b; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-bottom: 1px solid #e6e9ee; }
+  .meta div { padding: 12px 22px; border-right: 1px solid #e6e9ee; }
+  .meta b { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #69737d; margin-bottom: 3px; }
+  footer { padding: 14px 22px; font-size: 11px; color: #69737d; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>खाता विवरण / Account statement</h1>
+  <p class="who">
+    खाताधारक / Account holder: <span data-pii="NAME">Meera Raghavan</span>
+  </p>
+</header>
+
+<div class="meta">
+  <div>
+    <b>खाता संख्या / Account number</b>
+    <span data-pii="ACCOUNT">0237409546</span>
+  </div>
+  <div>
+    <b>आईएफएससी / IFSC</b>
+    <span data-pii="IFSC">HDFC0WGFPGQ</span>
+  </div>
+  <div>
+    <b>यूपीआई आईडी / UPI ID</b>
+    <span data-pii="UPI">meera464@axl</span>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>दिनांक / Date</th>
+      <th>विवरण / Narration</th>
+      <th>संदर्भ / Reference</th>
+      <th class="num">राशि / Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>01/09/2026</td>
+      <td>UPI/CR/<span data-pii="UPI">meera464@axl</span>/Rent</td>
+      <!-- DECOY: a 12-digit transaction reference, Verhoeff-invalid -->
+      <td data-decoy="txn">202601150001</td>
+      <td class="num">18,000.00</td>
+    </tr>
+    <tr>
+      <td>02/09/2026</td>
+      <td>POS PURCHASE &mdash; card ending
+        <!-- DECOY: only the last four digits; not a card number -->
+        <span data-decoy="last4">6668</span>
+      </td>
+      <td data-decoy="txn">100000000000</td>
+      <td class="num">1,299.00</td>
+    </tr>
+    <tr>
+      <td>04/09/2026</td>
+      <td>NEFT to
+        <!-- A third party's account: still an account number, still sensitive -->
+        <span data-pii="ACCOUNT">1139309559</span> (Sharma &amp; Sons)
+      </td>
+      <td data-decoy="txn">870000012345</td>
+      <td class="num">7,450.00</td>
+    </tr>
+    <tr>
+      <td>06/09/2026</td>
+      <td>Card on file updated &mdash;
+        <span data-pii="CARD">4614 6100 3307 6668</span>
+      </td>
+      <td data-decoy="txn">100000000012</td>
+      <td class="num">0.00</td>
+    </tr>
+    <tr>
+      <td>07/09/2026</td>
+      <td>Invoice settled
+        <!-- DECOY: an SKU that happens to look like a card but fails Luhn -->
+        SKU 4111 1111 1111 1112
+      </td>
+      <td data-decoy="txn">555512340001</td>
+      <td class="num">2,100.00</td>
+    </tr>
+    <tr>
+      <td>08/09/2026</td>
+      <td>Registered mobile changed to
+        <span data-pii="PHONE">9893287921</span>
+      </td>
+      <td data-decoy="txn">300458812277</td>
+      <td class="num">0.00</td>
+    </tr>
+  </tbody>
+</table>
+
+<footer>
+  <!-- DECOY: a result count -->
+  Showing 1234 of 5678 transactions.
+  <!-- DECOY: a branch helpline -->
+  शाखा हेल्पलाइन / Branch helpline 1800 202 6161.
+  <!-- DECOY: a historical date, not anyone's date of birth -->
+  Statement format revised 15/08/1947 rules superseded 01/04/2021.
+</footer>
+
+</body>
+</html>

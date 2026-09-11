@@ -144,9 +144,19 @@ there is no token for a hallucinating model to ask us to type somewhere else.
 **Decision.** The profile persists in `browser.storage.session` (memory-backed, wiped when the
 browser closes) rather than on disk.
 
-**Why.** `storage.local` writes PII to disk in plaintext. CLAUDE.md allows persistence only if
-WebCrypto-encrypted, and that work belongs in M7. Until then, not writing it at all is the safer
-default and costs the user one re-entry per browser session.
+**Why.** `storage.local` writes PII to disk in plaintext, which is not acceptable for a tool
+whose entire claim is that personal data stays put.
+
+**Settled, not deferred.** This was first written as "until we build encrypted persistence",
+and on review we are keeping it as the permanent answer. WebCrypto persistence would mean a
+passphrase the user must set and re-enter, a key-derivation step to get wrong, ciphertext on
+disk for an attacker to take away and work on offline, and a new prompt in the one surface that
+is supposed to be simple — all to save one re-entry per browser session. "The profile is gone
+when you close the browser" is a shorter sentence to defend than any encryption scheme we could
+ship, and it is the stronger privacy position.
+
+**What we give up.** The user re-enters their profile once per browser session. The UI says so
+rather than hiding it.
 
 ---
 
@@ -246,11 +256,19 @@ supplies the crop rects for free, which is what makes this cheap enough to do at
 
 ---
 
-## D15 — Ship ORT's "jsep" build, and only once
+## D15 — One ORT build per target, and only one copy of it
 
-**Decision.** Import `onnxruntime-web` (the default entry) and stage
-`ort-wasm-simd-threaded.jsep.wasm` in `public/ort/`. Vite is aliased to ORT's
-*non-bundled* ESM build.
+**Decision.** Alias `onnxruntime-web` per browser: Chrome gets the *jsep* build
+(`ort.min.mjs`, WebGPU + WASM in one 27 MB binary), Firefox the plain WASM build
+(`ort.wasm.min.mjs`, 13 MB). Both binaries are staged in `public/ort/`; a
+`build:publicAssets` hook drops the one the target cannot use. Vite is aliased to
+ORT's *non-bundled* ESM builds in both cases.
+
+**Why the split.** Firefox has no WebGPU today, so `runtime.ts` was always going to
+choose the WASM provider there — the jsep binary put 14 MB of code in the package
+that could never execute. Splitting costs one hook and takes the Firefox artifact
+from **47.9 MB to 33.8 MB**, a 30% cut on the criterion that measures client-side
+resource use. Chrome is unchanged, because on Chrome the WebGPU half is the point.
 
 **Why, in painful detail,** because this is easy to get wrong and expensive when you do:
 
@@ -267,8 +285,10 @@ supplies the crop rects for free, which is what makes this cheap enough to do at
   its own output and recurses until the build dies, and `onnxruntime-web` exports
   neither `./dist/*` nor `./package.json`.
 
-**Verification.** `find .output -name '*.wasm'` should return exactly one file. That
-check is worth keeping in the release routine.
+**Verification.** `find .output -name 'ort-*.wasm'` returns exactly one file per
+target, and `eval/smoke_extension.py` loads that file from inside the packed
+extension and hands it to `WebAssembly.compile`. A wrong `wasmPaths`, a damaged
+copy, or a CSP that forbids WASM fails nowhere else.
 
 ---
 
@@ -364,3 +384,91 @@ returned **2,187 boxes all at confidence exactly 1.0**. It fails *silently* — 
 is right, the count is plausible, and it looks like a working detector until the boxes
 are plotted. Naming the convention at every call site is cheap insurance against a bug
 with no error message.
+
+---
+
+## D22 — A holdout set that lives outside the demo site
+
+**Decision.** Four pages in `eval/holdout/` — a label-less SPA, a 2005 table-layout
+portal, a bilingual statement with no form controls, a support transcript where every
+value sits in running prose. They are never demonstrated, and no rule was written or
+tuned while looking at them. They are scored separately from `demo-site/`, and both
+numbers are reported.
+
+**Why.** Precision 1.000 / recall 0.978 on the pages you developed against is not
+evidence that anything generalises; it is mostly evidence that you developed against
+them. The first blind run said **precision 1.000, recall 0.784** — and the 21-point
+gap was the useful output of the whole exercise.
+
+**What it found.** Three real gaps, all of them things a live portal does every day:
+
+1. `BANK_ACC_NO` and `MOB_NO` matched no keyword rule. `\b(account\s*(number|no))\b`
+   does not accept `acc`, and `\bmobile\b` does not accept `mob`.
+2. The account-number rule required the phrase "account number". Prose says
+   "refund it to account 1139309559".
+3. A `contenteditable` was naming *itself*: its accessible name came back as its own
+   content, so an address box reported "14/2 Sardar Patel Marg" as its label and every
+   keyword rule correctly declined to fire. `classifyField` then rejected it anyway
+   for not being an `<input>` — which is most design-system text fields.
+
+Fixing those took recall to **0.892** with precision still at 1.000, and each fix is
+pinned by a unit test so it cannot quietly revert.
+
+**The honest caveat.** 0.784 is the only truly blind number this set will ever
+produce; everything after it was measured on pages that have now been looked at. The
+four remaining misses are not bugs: three are a *person's name* belonging to someone
+who is not in the vault (there is no NER — D4), and one is a bare ten-digit number
+with no context word anywhere near it, which cannot be distinguished from an order
+id without destroying the precision column.
+
+---
+
+## D23 — Exercise the VLM path over a real socket, and say what that does not prove
+
+**Decision.** `server/tools/mock_vlm.py` is a runnable OpenAI-compatible endpoint.
+`tests/test_vlm_live.py` starts it on a real port and drives `/v1/step` through the
+actual `httpx` client, asserting that `planner` comes back as `"vlm"`.
+
+**Why.** Every other test mocks the model out, which means the one thing never
+exercised was the part most likely to break in front of a judge: the request shape,
+the prompt, the parse, the validation, the fallback. Asserting on `planner == "vlm"`
+matters as much as the action itself — a silent fall back to the deterministic
+planner is exactly how this kind of test passes for the wrong reason.
+
+**What it proves, and what it does not.** It proves the wire path works and that
+`build_user_message` carries enough to act on — the stub decides from that text
+alone, so dropping element ids or `profile_keys` from the prompt fails the test. It
+proves a reply wrapped in prose and a markdown fence still parses, which is what
+7B-class models actually emit. It proves **nothing at all** about how well a model
+would choose. That still needs weights, and is still listed as a limitation.
+
+---
+
+## D24 — Cross shadow boundaries; say plainly that closed roots are unreachable
+
+**Decision.** `lib/dom/shadow.ts` walks open shadow roots, and both the element scan
+and the text walker use it. A closed root is left alone and documented as a limit.
+
+**Why.** `document.querySelectorAll` does not enter a shadow root, and a `TreeWalker`
+will not cross into one. A form built from web components — which is most modern
+design systems, and a growing number of government and banking portals — therefore
+looked to the DOM layer like a page with no form on it: no field classified, nothing
+redacted, nothing for the agent to act on. The value was still in the screenshot, so
+this was not merely a missed feature; it was a leak on a whole class of site, and the
+claim "works on any page, in any browser" was not true while it held.
+
+**Measured.** `eval/holdout/webcomponent.html` — four fields in open roots, three more
+in a nested component, one in a *closed* one — scores 1.000 / 1.000 on the reachable
+seven, with both decoys (a vehicle registration, a 12-digit pass serial) left alone.
+
+**Honesty note.** Unlike the other four holdout pages, this one is **not blind**: the
+traversal was written first and the page added to hold it in place. It is a
+regression test, and it is labelled as one. The blind number remains the 0.784 that
+the original four produced on their first run.
+
+**The closed-root limit.** `attachShadow({mode: 'closed'})` withholds the root from
+every caller, including a content script, by design. Nothing can read it, so nothing
+can redact it. The holdout page annotates that field `data-unreachable` rather than
+`data-pii`, because scoring it as a miss would imply a fix exists. If a page uses a
+closed root to render PII, this extension cannot protect it, and the honest answer is
+to say so rather than to quietly score around it.

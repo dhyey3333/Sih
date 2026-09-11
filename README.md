@@ -25,7 +25,7 @@ The server never sees a single piece of your personal data. It sees `⟦PROFILE.
    │  page ──► screenshot + DOM snapshot                          │
    │             │                                                │
    │             ├─► DOM layer    passwords, autocomplete,        │
-   │             │                Aadhaar/PAN/card + checksums    │  2–20 ms
+   │             │                Aadhaar/PAN/card + checksums    │  2–27 ms
    │             ├─► vision layer faces, ID scans, OCR, canvas UI  │
    │             │                                                │
    │             ▼                                                │
@@ -53,6 +53,9 @@ A model can be wrong. The architecture is built so that being wrong is not enoug
   request and logs the incident type — never the value.
 - **Text is painted over, never blurred.** Blurred text is recoverable; the glyph alphabet is
   tiny. Only faces are pixelated, and only because there is no small alphabet to brute-force.
+- **It crosses shadow boundaries.** A form built from web components is invisible to
+  `document.querySelectorAll`, so it would have been redacted by nothing at all while its values
+  sat in the screenshot. Open shadow roots are walked; closed ones cannot be, and we say so.
 
 ## Where it stands
 
@@ -61,11 +64,21 @@ All seven milestones are done and measured. See [docs/PROGRESS.md](docs/PROGRESS
 
 **Privacy filter**, scored automatically in a real browser against `data-pii` ground truth:
 
-| | |
-|---|---|
-| PII detection precision | **1.000** (zero false positives, against deliberate decoys) |
-| PII detection recall | **0.978** over 45 items, faces and ID scans included |
-| Perception time | **2–20 ms per page**, no model loaded |
+| | Demo site | Holdout |
+|---|---|---|
+| PII detection precision | **1.000** | **1.000** |
+| PII detection recall | **0.978** over 45 items | **0.905** over 42 items |
+| Perception time | **2–27 ms per page**, no model loaded | |
+
+The holdout is pages in `eval/holdout/` that are never demonstrated. Four were never looked at
+while a rule was written — a label-less SPA, a 2005 table-layout government portal, a bilingual
+statement with no form controls, a support transcript where every value sits in prose. Their
+first blind run read **recall 0.784**, and the gap was the point: they found three real gaps,
+all now fixed and pinned by tests. A fifth page holds shadow-DOM traversal in place — before
+that, a form built from web components was invisible to the DOM layer entirely, which was a leak
+on a whole class of modern site. Precision never moved off 1.000, on either set, against
+deliberate decoys: order numbers, a Luhn-invalid SKU, a PAN-shaped scheme code, a vehicle
+registration, a public helpline.
 
 **End-to-end agent**, filling an empty scholarship form from the local profile:
 
@@ -75,7 +88,8 @@ All seven milestones are done and measured. See [docs/PROGRESS.md](docs/PROGRESS
 | Client pipeline | 216 ms (redact 193, tokenize 10, egress guard 10, detect+fuse 2) |
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
-| Tests | 313 passing (231 extension, 62 server, 20 ml) |
+| Handled with no request at all | **5 of 9 fields** (L0: the page declared the field, the vault had the value) |
+| Tests | 415 passing (327 extension, 68 server, 20 ml) |
 
 **On-device vision**, YuNet via onnxruntime-web:
 
@@ -108,13 +122,19 @@ Labels come from the page's own `data-pii` attributes, read back with
 `getBoundingClientRect()` — so training labels and eval ground truth are literally the same
 annotation and cannot drift apart. See [`ml/README.md`](ml/README.md).
 
-**Not done yet, stated plainly.** The detector is a **smoke run**: 12 epochs at 384 px on a
-laptop. It works and its boxes land correctly, but it puts a false box on a decoy and misses an
-email — a shippable model needs a GPU, more epochs and 960 px. There is no real-screenshot test
-set: everything is synthetic or the demo site, and a hand-labelled set of real pages never
-trained on is the honest test. The packed extension is **45.7 MB**, 58% of it the ONNX runtime.
-And the end-to-end agent run used the server's deterministic planner — the VLM path has unit
-tests but has not been exercised against a live model.
+**Client resources.** Chrome **45.7 MB** packed, Firefox **32.2 MB**. Firefox is 30% smaller
+because it is given a different ONNX runtime: it has no WebGPU, so the WebGPU half of the
+combined binary is 14 MB that could never execute. Neither number is what you pay per page — the
+models load lazily, and a screen the DOM layer handles alone costs 2–27 ms and zero megabytes.
+
+**Not done yet, stated plainly.** There is **no real-screenshot test set** — everything measured
+is the demo site, the holdout, or synthetic pages, and hand-labelled screenshots of real portals
+are the honest next test. The VLM path is exercised end to end over a real socket, but against a
+**protocol conformance stub**, not model weights: it proves the request shape, the prompt and the
+parsing, and nothing about how well a model would choose. Names belonging to someone other than
+the user are not detected, by choice — there is no NER model. And the holdout's 0.784 is the only
+truly blind number it will ever produce; everything after it was measured on pages that have now
+been looked at.
 
 ## Try it
 
@@ -148,12 +168,15 @@ cd extension && npm run dev:firefox
 
 Then, in the side panel, press **Load demo profile** and:
 
-- **The privacy demo** — open `http://localhost:5173/kyc.html` and press **Analyze page**.
-  Nothing is sent. Toggle *Original* ↔ *What the server sees*, and open the payload inspector.
-  Untick **On-device vision layer** and analyze again: the profile photo and the ID-card scan
-  come back, which is the clearest way to show what the model is actually buying.
+- **The privacy demo** — open `http://localhost:5173/kyc.html` and press **Analyze**. Nothing is
+  sent. **Drag the divider** across the preview: left is your screen, right is what the server
+  would get, in place. Hover a row in *Detections* to light up the pixels it covers, and open
+  *What leaves the device* for the exact request body. Untick **On-device vision** and analyze
+  again: the profile photo and the ID-card scan come back, which is the clearest way to show what
+  the models are actually buying.
 - **The agent demo** — open `http://localhost:5173/apply.html`, type
-  *"fill this form with my profile and stop before submitting"*, and press **Run task**.
+  *"fill this form with my profile and stop before submitting"*, and press **→**. Watch the
+  counter line: five fields are filled before a single request is made.
 
 To use a real model, copy `server/.env.example` to `server/.env` and point `VLM_BASE_URL` at any
 OpenAI-compatible endpoint (vLLM, Ollama, or a hosted open-weights model).
@@ -176,6 +199,7 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 | `server/` | FastAPI + provider-agnostic VLM client |
 | `ml/` | synthetic data engine, training, ONNX export |
 | `eval/` | one-command metric harness |
+| `eval/holdout/` | the blind set — pages in idioms the demo site does not use, never tuned against |
 | `demo-site/` | mock pages with **fake** PII, annotated with ground truth |
 | `docs/` | [submission](docs/SUBMISSION.md) · [demo script](docs/DEMO.md) · [plan](docs/PLAN.md) · [problem](docs/problem.md) · [progress](docs/PROGRESS.md) · [decisions](docs/DECISIONS.md) · [teammate review](docs/TEAMMATE_REVIEW.md) |
 | `reference/` | teammate's earlier prototype, read-only, gitignored |
@@ -186,10 +210,18 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 |---|---|
 | `npm run dev` / `dev:firefox` | run the extension |
 | `npm run build` / `build:firefox` / `build:all` | production builds |
-| `npm test` | 231 unit tests |
-| `npm run assets` | restage the ORT WASM binary from node_modules |
+| `npm test` | 327 unit tests |
+| `npm run assets` | restage the ORT WASM binaries from node_modules |
 | `npm run compile` | typecheck |
 | `npm run build:domcheck` | standalone bundle for scoring a page |
+| `npm run uipreview` | the side panel, populated, as a plain page — for judging the design |
+
+From the repo root:
+
+| | |
+|---|---|
+| `uv run python -m eval.run_all` | every number above, in a real browser |
+| `uv run python -m eval.smoke_extension` | boots the **packed** extension and checks it comes up clean |
 
 ## A note on data
 

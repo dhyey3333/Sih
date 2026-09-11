@@ -12,6 +12,172 @@ Status board. Updated at the end of every milestone (CLAUDE.md).
 | M5 Custom detector | ✅ synthetic data engine, training, ONNX export, integrated; OCR on image regions |
 | M6 Eval harness | ✅ `uv run python -m eval.run_all` rebuilds every number |
 | M7 Polish | ✅ redesigned side panel, L0 local-only steps, Firefox lint pass, submission + demo docs |
+| M8 Hardening | ✅ new side panel, blind holdout set, shadow-DOM traversal, per-target ORT (−30% on Firefox), live VLM path, packed-extension smoke test |
+
+---
+
+## 2026-09-11 — M8: hardening
+
+Not in the original plan. The brief was "finish whatever is unfinished and fix the
+UI", so this milestone is the list of things `docs/SUBMISSION.md` had been calling
+limitations, plus a side panel rebuilt from the ground up.
+
+### The side panel, rebuilt
+
+The old panel was a stack of identical rounded boxes — every idea got a card, so
+nothing had priority, and the thing that makes this project worth looking at was one
+element among twelve. The rebuild is organised around a single claim: **the
+comparison is the product.**
+
+- **The wipe is the hero.** A draggable divider over a single frame: left is your
+  screen, right is what the server receives, in place. One gesture is the entire
+  pitch. A segmented control below it (`Your screen · Compare · Sent`) gives the same
+  thing without dragging, and the slider is a real `<input type=range>` with its
+  chrome removed, so keyboard, pointer capture and accessibility come for free.
+- **Detections are linked to pixels.** Every redaction is outlined on the sanitized
+  half, animated in with a capped stagger. Hovering a row in the list lights up its
+  box, so a sceptic can check any single claim in a second rather than taking the
+  count on trust. Boxes are positioned as a percentage of the viewport — the preview
+  is scaled to whatever width the panel has, so pixels would be wrong at every size
+  but one.
+- **A session ledger that counts rather than claims.** `0 requests · 0 B sent ·
+  N handled on-device`. It stays at zero for the whole of act one of the demo, which
+  is the point: it is a live counter, not a badge.
+- **Hierarchy from type and hairlines, not from boxes.** Related rows share one
+  grouped container the way a settings list does. Four metrics as bare tabular
+  numerals under hairline rules. One accent (blue = interactive), with green and red
+  reserved for verdicts — passed and blocked — and nothing else allowed to use them.
+- **One material.** A single easing curve everywhere, translucent titlebar and sheet,
+  a shield whose checkmark *draws itself* when the scan passes, a scan sweep that
+  runs only while the pipeline is actually working, full light and dark, and
+  `prefers-reduced-motion` honoured.
+- One control is both Run and Stop; two buttons where only one is ever usable is a
+  row of dead pixels.
+
+`npm run uipreview` builds the real markup and the real stylesheet into a standalone
+page with representative state, so the design can be judged populated rather than
+empty. Only the data is faked.
+
+**Two bugs the rebuild surfaced, both invisible until something was on screen:**
+
+1. `.scroll` is a flex column, and flex children shrink by default. A group with
+   `overflow: hidden` then clipped its own rows instead of scrolling — the Pipeline
+   and payload panels were being painted *underneath* the group below them. Sections
+   now keep their natural height.
+2. Several elements are `display: flex`, which overrides the UA rule for `[hidden]`.
+   The panel toggles visibility with `el.hidden`, so the confirmation sheet was
+   permanently on screen. A global `[hidden] { display: none !important }` fixes it,
+   and a test asserts the rule is still there.
+
+### A blind holdout set
+
+`eval/holdout/` — pages that live outside `demo-site/`, are never demonstrated, and
+that no rule was written or tuned against. Four of them: a label-less SPA where roles
+are on `<div>`s and fields are identified by placeholder, a 2005 table-layout EPFO
+portal in uppercase tags and nested tables, a bilingual account statement with no
+form controls at all, and a support transcript where every value sits in running
+prose. Every page carries deliberate decoys.
+
+**First blind run: precision 1.000, recall 0.784.** Against 0.978 on the demo site.
+That 19-point gap was the entire point of building it, and it found three real gaps:
+
+| What was missed | Why |
+|---|---|
+| `BANK_ACC_NO`, `MOB_NO` | `\b(account\s*(number\|no))\b` does not accept `acc`; `\bmobile\b` does not accept `mob`. Verbatim field names from live government forms. |
+| "refund it to account 1139309559" | The rule required the phrase "account number". Prose does not say that. |
+| A `contenteditable` address box | Its accessible name came back as *its own content*, so it reported "14/2 Sardar Patel Marg" as its label and every keyword rule correctly declined. `classifyField` then rejected it anyway for not being an `<input>` — which is most design-system text fields. |
+
+After the fixes: **recall 0.892, precision still 1.000.** Each fix is pinned by a unit
+test. The demo-site numbers did not move, which is what says the fixes were general
+rather than fitted.
+
+The four remaining misses are not bugs and are named as such: three are a person's
+name belonging to someone who is not in the vault (no NER, by choice — D4), and one
+is a bare ten-digit number with no context word anywhere near it, which cannot be
+separated from an order id without giving up the precision column.
+
+### Shadow DOM — the leak the holdout led to
+
+`document.querySelectorAll` does not enter a shadow root, and a `TreeWalker` will not
+cross into one. A form built from web components — most modern design systems, and a
+growing number of portals — therefore looked to the DOM layer like a page with **no
+form on it at all**: nothing classified, nothing redacted, nothing for the agent to
+act on, while the values sat in the screenshot as usual.
+
+`lib/dom/shadow.ts` walks open roots; the element scan, the image scan and the text
+walker all use it, and so does the eval harness's ground-truth collection — otherwise
+a web-component page would score against an empty truth set and report perfect.
+
+`eval/holdout/webcomponent.html` covers four fields in open roots, three in a nested
+component, and one in a **closed** root. Reachable seven: 1.000 / 1.000, decoys left
+alone. The closed one is annotated `data-unreachable`, not `data-pii`: nothing in a
+content script can read a closed root, so scoring it as a miss would imply a fix
+exists. This page is **not blind** — the traversal was written first — and is labelled
+a regression test wherever it appears.
+
+Holdout aggregate: **precision 1.000, recall 0.905 over 42 items.**
+
+### One ONNX runtime per target
+
+ORT ships the WebGPU execution provider and the plain WASM one together in a 27 MB
+`jsep` binary. Firefox has no WebGPU, so 14 MB of that could never execute. Each
+target is now aliased to the build it can use, and a `build:publicAssets` hook drops
+the other binary before it is copied.
+
+| | Chrome | Firefox |
+|---|---|---|
+| ORT binary | 26.5 MB (jsep) | 13.3 MB (wasm) |
+| **Packed** | **45.7 MB** | **32.2 MB** (was 45.7) |
+
+30% off the Firefox artifact, for one hook and an alias.
+
+### The VLM path, over a real socket
+
+`server/tools/mock_vlm.py` is a runnable OpenAI-compatible endpoint;
+`tests/test_vlm_live.py` starts it on a real port and drives `/v1/step` through the
+actual `httpx` client. Six tests, asserting among other things that `planner` comes
+back as `"vlm"` — a silent fall back to the deterministic planner is exactly how this
+kind of test passes for the wrong reason.
+
+It is **not a model**, and the docstring says so in its first paragraph. What it does
+prove: the request shape is one an OpenAI-compatible server accepts; `build_user_message`
+carries enough to act on, since the stub decides from that text alone; a reply wrapped
+in prose and a markdown fence — what 7B-class models actually emit — still parses; and
+a dead endpoint degrades to the planner rather than to a 500.
+
+### A smoke test for the thing that ruins demos
+
+`uv run python -m eval.smoke_extension` loads the **packed** Chrome build into a real
+browser, opens the side panel at its `chrome-extension://` origin, and checks it boots
+with no console error, that every element handle resolved, and that the bundled model
+and this target's WASM binary both load and that `WebAssembly.compile` accepts the
+binary. A wrong `wasmPaths`, a damaged staged file or a CSP that forbids WASM fails
+nowhere else — and a blank panel is the single worst thing that can happen on stage.
+
+Also added: `tests/sidepanel-markup.test.ts` cross-checks every `$('id')` in `main.ts`
+against the markup. The panel resolves handles at module load and throws on a miss, so
+a rename takes the whole surface down at runtime; this catches it as a spelling test.
+
+### Measured, end to end
+
+| | |
+|---|---|
+| PII detection, demo site | precision 1.000, recall 0.978 over 45 items |
+| PII detection, **holdout** | precision 1.000, recall **0.905** over 42 items |
+| Leak test | **0**, on all nine pages |
+| Packed | Chrome 45.7 MB, Firefox 32.2 MB |
+| Firefox `web-ext lint` | 0 errors, 6 warnings (all pre-existing and explained) |
+| Tests | **415** — 327 extension, 68 server, 20 ml |
+| Packed extension boots clean | ✅ `eval.smoke_extension` |
+
+### Still not done
+
+- **No real-screenshot test set.** The holdout is the closest thing, and it is still
+  pages we wrote. Hand-labelled screenshots of real portals, never trained on, is the
+  test we have not run.
+- The live VLM test runs against a protocol stub, not weights.
+- Closed shadow roots cannot be read, by design of the platform.
+- A backup demo video still has not been recorded.
 
 ---
 

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Aadhaar-linked KYC · Step 2</title>
+<!--
+  HOLDOUT PAGE — not part of the demo, never opened while developing a rule.
+
+  Idiom: a single-page app. No <label for>, no <form>, no autocomplete attributes.
+  Roles are on <div>s, fields are identified by placeholder and camelCase name, and
+  one "input" is a contenteditable. This is what a React/Vue form usually compiles
+  to, and it removes almost every signal the DOM layer prefers to use.
+
+  All values are fake. Decoys are marked with data-decoy and must NOT be detected.
+-->
+<style>
+  :root { font-family: Inter, system-ui, sans-serif; }
+  body { margin: 0; background: #f6f7fb; color: #10131a; }
+  .shell { max-width: 720px; margin: 0 auto; padding: 28px 20px 60px; }
+  .head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .logo { width: 34px; height: 34px; border-radius: 9px; background: #1d4ed8; }
+  h1 { font-size: 19px; margin: 0; }
+  .sub { font-size: 12px; color: #6b7280; margin: 2px 0 0; }
+  .card { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+  .fieldset { display: grid; gap: 14px; }
+  .f-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #6b7280; margin-bottom: 5px; }
+  input, .ce { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid #d7dbe3; border-radius: 8px; font: inherit; font-size: 13px; background: #fff; }
+  .ce { min-height: 38px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .note { font-size: 12px; color: #6b7280; margin-top: 18px; line-height: 1.6; }
+  .btn { margin-top: 18px; padding: 10px 18px; border: 0; border-radius: 9px; background: #1d4ed8; color: #fff; font: inherit; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="shell">
+    <div class="head">
+      <div class="logo"></div>
+      <div>
+        <h1>Aadhaar-linked KYC</h1>
+        <p class="sub">Step 2 of 4 · saved 40 seconds ago</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="fieldset">
+        <div>
+          <div class="f-label" aria-hidden="true">Applicant name</div>
+          <input type="text" name="applicantName" placeholder="As printed on your Aadhaar"
+                 value="Meera Raghavan" data-pii="NAME" />
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="f-label" aria-hidden="true">Aadhaar</div>
+            <input type="text" name="aadhaarNumber" placeholder="12 digits"
+                   value="9877 8932 8793" data-pii="AADHAAR" />
+          </div>
+          <div>
+            <div class="f-label" aria-hidden="true">PAN</div>
+            <input type="text" name="panNumber" placeholder="ABCDE1234F"
+                   value="BOZLF8378G" data-pii="PAN" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="f-label" aria-hidden="true">Registered mobile</div>
+            <input type="text" name="contactNumber" placeholder="10 digits"
+                   value="9893287921" data-pii="PHONE" />
+          </div>
+          <div>
+            <div class="f-label" aria-hidden="true">Email</div>
+            <input type="text" name="emailId" placeholder="you@example.com"
+                   value="meera.raghavan@example.in" data-pii="EMAIL" />
+          </div>
+        </div>
+
+        <div>
+          <div class="f-label" aria-hidden="true">Communication address</div>
+          <!-- contenteditable, not an input: the value lives in a text node -->
+          <div class="ce" role="textbox" contenteditable="true" data-field="addressLine"
+               data-pii="ADDRESS">14/2 Sardar Patel Marg, Ahmedabad 380006</div>
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="f-label" aria-hidden="true">Portal password</div>
+            <input type="password" name="secret" placeholder="••••••••"
+                   value="Hillside!2026" data-pii="PASSWORD" />
+          </div>
+          <div>
+            <div class="f-label" aria-hidden="true">Application reference</div>
+            <!-- DECOY: 12 digits, Verhoeff-invalid, and the label says reference -->
+            <input type="text" name="applicationRef" value="870000012345" data-decoy="ref" />
+          </div>
+        </div>
+      </div>
+
+      <button class="btn" type="button">Continue to step 3</button>
+    </div>
+
+    <p class="note">
+      <!-- DECOY: a date that is not a date of birth -->
+      Applications opened on 15/08/2026 and close at the end of the quarter.
+      <!-- DECOY: a public helpline, not a personal phone -->
+      For help call the helpline on 1800 425 3800.
+      <!-- DECOY: a result count -->
+      Showing 1234 of 5678 saved drafts.
+    </p>
+  </div>
+</div>
+</body>
+</html>

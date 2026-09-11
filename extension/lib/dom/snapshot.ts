@@ -10,6 +10,7 @@
 import type { DomSnapshot, ImageCandidate, PageElement, PiiType, Rect, TextFinding } from '../protocol';
 import { accessibleName, interactiveSelector, isVisibleInViewport, roleOf } from './accessibility';
 import { collectTextBlocks, rectsForSpan } from './text-blocks';
+import { deepQueryAll } from './shadow';
 import { classifyField, imageHint, type FieldDescriptor } from '../pii/dom-heuristics';
 import { scanText } from '../pii/validators';
 
@@ -73,6 +74,8 @@ function descriptorFor(el: Element, label: string): FieldDescriptor {
     autocomplete: el.getAttribute('autocomplete') ?? undefined,
     title: el.getAttribute('title') ?? undefined,
     inputMode: el.getAttribute('inputmode') ?? undefined,
+    editable:
+      el.getAttribute('contenteditable') !== null || el.getAttribute('role') === 'textbox',
   };
 }
 
@@ -84,7 +87,9 @@ function collectElements(
   const out: PageElement[] = [];
   let nextId = 1;
 
-  for (const el of document.querySelectorAll(interactiveSelector())) {
+  // Deep: a form inside a web component is otherwise invisible to every layer
+  // below this one (lib/dom/shadow.ts).
+  for (const el of deepQueryAll(document, interactiveSelector())) {
     if (out.length >= maxElements) break;
     if (!isVisibleInViewport(el, viewport)) continue;
 
@@ -234,7 +239,7 @@ function collectImageCandidates(viewport: { w: number; h: number }, maxImages: n
   const out: ImageCandidate[] = [];
   let id = -1;
 
-  for (const el of document.querySelectorAll('img, canvas, video, svg')) {
+  for (const el of deepQueryAll(document, 'img, canvas, video, svg')) {
     if (out.length >= maxImages) break;
     if (!isVisibleInViewport(el, viewport)) continue;
 

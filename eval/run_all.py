@@ -39,6 +39,15 @@ HARNESS_JS = (Path(__file__).parent / "harness.js").read_text()
 BUNDLE = ROOT / "extension/.output/domcheck/domcheck.js"
 
 PAGES = ("kyc", "profile", "bank", "apply")
+
+# The holdout. These pages live outside `demo-site/` on purpose: they are never
+# demonstrated, and no rule was written or tuned while looking at them. They are
+# deliberately unlike the demo site — an SPA with no labels, a 2005 table-layout
+# portal, a bilingual statement with no form controls, a chat transcript where every
+# value sits in running prose. Scored separately, because a number measured on the
+# pages you developed against is not evidence of anything.
+HOLDOUT = ("spa", "legacy", "statement", "support", "webcomponent")
+
 VIEWPORT = (1280, 1600)
 
 
@@ -63,10 +72,10 @@ def serve(directory: Path, port: int = 0):
             httpd.shutdown()
 
 
-def measure_pages(page, base: str) -> list[dict]:
+def measure_pages(page, base: str, names=PAGES, folder: str = "demo-site") -> list[dict]:
     results = []
-    for name in PAGES:
-        page.goto(f"{base}/demo-site/{name}.html", wait_until="load")
+    for name in names:
+        page.goto(f"{base}/{folder}/{name}.html", wait_until="load")
         page.add_script_tag(url=f"{base}/extension/.output/domcheck/domcheck.js")
         page.wait_for_function("() => !!window.__privagent")
         page.evaluate(f"() => window.__privagent.setAssetBase('{base}/extension/public')")
@@ -140,14 +149,18 @@ def asset_sizes() -> dict:
     files = {
         "yunet_onnx": ext / "public/models/face_detection_yunet.onnx",
         "ui_detector_onnx": ext / "public/models/ui_detector.onnx",
-        "ort_wasm": ext / "public/ort/ort-wasm-simd-threaded.jsep.wasm",
+        # Chrome gets the jsep build (WebGPU + WASM); Firefox has no WebGPU, so it
+        # gets the plain one. Reporting a single "ORT size" would be wrong for both.
+        "ort_wasm_chrome": ext / "public/ort/ort-wasm-simd-threaded.jsep.wasm",
+        "ort_wasm_firefox": ext / "public/ort/ort-wasm-simd-threaded.wasm",
         "tesseract_core_wasm": ext / "public/tesseract/tesseract-core-simd-lstm.wasm",
         "tesseract_lang": ext / "public/tesseract/eng.traineddata.gz",
     }
     sizes = {k: (p.stat().st_size if p.exists() else None) for k, p in files.items()}
-    built = ext / ".output/chrome-mv3"
-    if built.exists():
-        sizes["packed_extension"] = sum(f.stat().st_size for f in built.rglob("*") if f.is_file())
+    for target, key in (("chrome-mv3", "packed_chrome"), ("firefox-mv3", "packed_firefox")):
+        built = ext / ".output" / target
+        if built.exists():
+            sizes[key] = sum(f.stat().st_size for f in built.rglob("*") if f.is_file())
     return sizes
 
 
@@ -183,6 +196,30 @@ def build_markdown(report: dict) -> str:
         f"**{fmt(agg['f1'])}** | — | — |"
     )
 
+    lines += ["", "### Holdout — pages no rule was written against", "",
+              "Pages that live outside `demo-site/` and are never demonstrated. Four of them —",
+              "a label-less SPA, a 2005 table-layout portal, a bilingual statement with no form",
+              "controls at all, and a support transcript where every value sits in running prose",
+              "— were not looked at while any detector rule was written or tuned. Their first",
+              "blind run read precision 1.000 / recall 0.784; what it found is in DECISIONS D22.",
+              "",
+              "`webcomponent.html` is the exception and is **not blind**: shadow-DOM traversal",
+              "was written first and the page added to hold it in place (D24). It is a",
+              "regression test, counted here but labelled so the distinction is not lost.", "",
+              "| Page | Items | Precision | Recall | F1 | Pixel recall |", "|---|---|---|---|---|---|"]
+    for r in report.get("holdout", []):
+        v = r["withVision"]
+        lines.append(
+            f"| `{r['page']}.html` | {v['groundTruth']} | {fmt(v['precision'])} | {fmt(v['recall'])} | "
+            f"{fmt(v['f1'])} | {pct(v['pixelRecall'])} |"
+        )
+    hold = report.get("holdoutAggregate")
+    if hold:
+        lines.append(
+            f"| **all** | **{hold['groundTruth']}** | **{fmt(hold['precision'])}** | "
+            f"**{fmt(hold['recall'])}** | **{fmt(hold['f1'])}** | — |"
+        )
+
     lines += ["", "### What the vision layer adds", "",
               "| Page | Recall, DOM only | Recall, with vision |", "|---|---|---|"]
     for r in report["pages"]:
@@ -193,7 +230,7 @@ def build_markdown(report: dict) -> str:
               "with OCR. `Recovered` counts ground-truth values still legible afterwards.", "",
               "| Page | Chars still readable | PII found in redacted image | **Recovered** |",
               "|---|---|---|---|"]
-    for r in report["pages"]:
+    for r in report["pages"] + report.get("holdout", []):
         leak = r.get("leak") or {}
         lines.append(
             f"| `{r['page']}.html` | {leak.get('charsRecoverable', '—')} | "
@@ -298,6 +335,8 @@ def main() -> None:
 
         print("measuring pages…")
         pages = measure_pages(page, base)
+        print("measuring the holdout (pages no rule was written against)…")
+        holdout = measure_pages(page, base, HOLDOUT, "eval/holdout")
         print("benchmarking backends…")
         backends = benchmark_backends(page, base)
 
@@ -307,6 +346,8 @@ def main() -> None:
     report = {
         "pages": pages,
         "aggregate": aggregate(pages),
+        "holdout": holdout,
+        "holdoutAggregate": aggregate(holdout),
         "assets": asset_sizes(),
         "backends": backends,
     }
@@ -314,10 +355,14 @@ def main() -> None:
     (args.out / "RESULTS.md").write_text(build_markdown(report))
 
     agg = report["aggregate"]
+    hold = report["holdoutAggregate"]
     print(
-        f"\nprecision {fmt(agg['precision'])}  recall {fmt(agg['recall'])}  "
+        f"\ndemo site  precision {fmt(agg['precision'])}  recall {fmt(agg['recall'])}  "
         f"f1 {fmt(agg['f1'])}  over {agg['groundTruth']} items\n"
-        f"leak test: {agg['leaked']} ground-truth values recoverable from the redacted images\n"
+        f"holdout    precision {fmt(hold['precision'])}  recall {fmt(hold['recall'])}  "
+        f"f1 {fmt(hold['f1'])}  over {hold['groundTruth']} items\n"
+        f"leak test: {agg['leaked'] + hold['leaked']} ground-truth values recoverable "
+        f"from the redacted images\n"
         f"wrote {args.out / 'RESULTS.md'}"
     )
 

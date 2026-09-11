@@ -8,7 +8,7 @@
  * Returns one object per page. The caller aggregates.
  */
 async function runEval(options) {
-  const { buildSnapshot, detectionsFromFields, detectionsFromText, fuseDetections, Vault, DEMO_PROFILE, VisionLayer } =
+  const { buildSnapshot, detectionsFromFields, detectionsFromText, fuseDetections, Vault, DEMO_PROFILE, VisionLayer, deepQueryAll } =
     window.__privagent;
 
   const started = performance.now();
@@ -46,7 +46,10 @@ async function runEval(options) {
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   };
 
-  const truth = [...document.querySelectorAll('[data-pii]')]
+  // Deep, for the same reason the snapshot is: annotations inside a web component
+  // are unreachable to a plain querySelectorAll, and scoring against an empty truth
+  // set would report a perfect page.
+  const truth = deepQueryAll(document, '[data-pii]')
     .map((el) => ({
       type: el.getAttribute('data-pii'),
       // The literal value on screen, used by the leak test. Never leaves this page.

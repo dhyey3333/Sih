@@ -111,7 +111,11 @@ const RULES: readonly Rule[] = [
     // Bank account numbers have no checksum and no fixed length, so context is the
     // only thing separating them from order ids and reference numbers.
     pattern: /(?<![\d-])\d{9,18}(?![\d-])/g,
-    context: ['account number', 'account no', 'a/c', 'bank account', 'acct'],
+    // Plain "account" included: prose says "refund it to account 1139309559" far
+    // more often than it says "account number". The 9–18 digit shape plus a 48-char
+    // window is still narrow enough that the decoy order and reference numbers on
+    // the eval pages do not trip it — that is what the precision column checks.
+    context: ['account number', 'account no', 'a/c', 'bank account', 'acct', 'account'],
     confidence: 0.9,
   },
   {

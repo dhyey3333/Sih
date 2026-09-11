@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Ticket #48213 — Support transcript</title>
+<!--
+  HOLDOUT PAGE — not part of the demo, never opened while developing a rule.
+
+  Idiom: a support-chat transcript. Every sensitive value sits inside ordinary
+  running prose rather than beside a label, which is the case the field heuristics
+  cannot help with at all — the text layer and its checksums carry the whole page.
+  There is also a scanned ID attached, so the vision and OCR layers have something
+  the DOM cannot describe.
+
+  All values are fake. Decoys are marked with data-decoy and must NOT be detected.
+-->
+<style>
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; background: #fbfbfd; color: #1b1f27; }
+  .wrap { max-width: 700px; margin: 0 auto; padding: 24px 20px 50px; }
+  .tick { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 18px; }
+  h1 { font-size: 17px; margin: 0; }
+  .tag { font-size: 11px; color: #6c7480; }
+  .msg { display: flex; gap: 10px; margin-bottom: 16px; }
+  .who { width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center;
+         font-size: 12px; font-weight: 700; color: #fff; }
+  .agent .who { background: #475569; }
+  .cust .who { background: #b45309; }
+  .bubble { background: #fff; border: 1px solid #e7e9ee; border-radius: 12px; padding: 11px 13px; line-height: 1.65; font-size: 13.5px; }
+  .cust .bubble { background: #fff8ef; border-color: #f0e0c8; }
+  .attach { margin-top: 9px; }
+  .attach img { width: 300px; border-radius: 8px; border: 1px solid #e0e3ea; display: block; }
+  .attach figcaption { font-size: 11px; color: #77808c; margin-top: 5px; }
+  .sys { font-size: 11.5px; color: #77808c; text-align: center; margin: 20px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="tick">
+    <h1>Refund not received — order stuck</h1>
+    <!-- DECOY: a ticket number -->
+    <span class="tag">Ticket #48213 · opened 06/09/2026</span>
+  </div>
+
+  <div class="msg cust">
+    <div class="who">M</div>
+    <div class="bubble">
+      Hi, I&rsquo;m <span data-pii="NAME">Meera Raghavan</span> and my refund for
+      <!-- DECOY: an order number, 12 digits, Verhoeff-invalid -->
+      order 870000012345 still hasn&rsquo;t arrived. You can reach me on
+      <span data-pii="PHONE">9421809679</span> or at
+      <span data-pii="EMAIL">meera.raghavan@example.in</span>.
+    </div>
+  </div>
+
+  <div class="msg agent">
+    <div class="who">A</div>
+    <div class="bubble">
+      Thanks for writing in. I can see the order.
+      <!-- DECOY: a result count in prose -->
+      We are showing 1234 of 5678 refunds processed this week, so there is a delay.
+      Could you confirm the account it should go back to?
+    </div>
+  </div>
+
+  <div class="msg cust">
+    <div class="who">M</div>
+    <div class="bubble">
+      Yes — account <span data-pii="ACCOUNT">1139309559</span>, IFSC
+      <span data-pii="IFSC">BARB0U5Q366</span>. If UPI is quicker my ID is
+      <span data-pii="UPI">meera878@ibl</span>.
+      The card I paid with was <span data-pii="CARD">4614 6100 3307 6668</span>.
+    </div>
+  </div>
+
+  <div class="msg agent">
+    <div class="who">A</div>
+    <div class="bubble">
+      For a bank refund I need to verify identity. Please attach a government ID.
+      <!-- DECOY: a support helpline, and a PAN-shaped string that is not a PAN -->
+      You can also call 1800 425 3800, quoting scheme code ABCXI1234K.
+    </div>
+  </div>
+
+  <div class="msg cust">
+    <div class="who">M</div>
+    <div class="bubble">
+      Attaching it. My Aadhaar is <span data-pii="AADHAAR">4908 1003 3900</span> and PAN
+      <span data-pii="PAN">BOZLF8378G</span>, date of birth
+      <span data-pii="DOB">23/05/1975</span>.
+      <figure class="attach">
+        <!-- Not described anywhere in the DOM: only the vision + OCR layers see this -->
+        <img src="../../demo-site/assets/id-card.svg" alt="Attachment" data-pii="ID_DOCUMENT" />
+        <figcaption>aadhaar-front.jpg · 412 KB</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <p class="sys">
+    <!-- DECOY: a historical date in prose, not a date of birth -->
+    Transcript retained under the 15/08/2025 policy. Auto-closed after 7 days.
+  </p>
+
+</div>
+</body>
+</html>

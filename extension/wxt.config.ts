@@ -5,37 +5,76 @@ import { defineConfig } from 'wxt';
 const require = createRequire(import.meta.url);
 
 /**
- * Absolute path to ORT's non-bundled ESM build.
+ * Absolute path to one of ORT's non-bundled ESM builds.
  *
  * Resolved through the package's own entry rather than hard-coded, but it has to be
  * an absolute *file* path: `onnxruntime-web` does not export `./dist/*`, so an alias
  * pointing at a subpath is unresolvable.
  */
-const ORT_NON_BUNDLED = join(
-  // Resolves through the "require" condition to dist/ort.min.js, whose directory is
-  // what we actually want. `onnxruntime-web/package.json` is not exported either.
-  dirname(require.resolve('onnxruntime-web')),
-  'ort.min.mjs',
-);
+function ortBuild(file: string): string {
+  return join(
+    // Resolves through the "require" condition to dist/ort.min.js, whose directory is
+    // what we actually want. `onnxruntime-web/package.json` is not exported either.
+    dirname(require.resolve('onnxruntime-web')),
+    file,
+  );
+}
+
+/**
+ * Which ORT build each target gets, and therefore which WASM binary it needs.
+ *
+ * Chrome can use WebGPU, so it gets the `jsep` build: WebGPU and WASM execution
+ * providers in one 27 MB binary. Firefox has no WebGPU, so the same file would ship
+ * 14 MB of code that can never run — it gets the plain WASM build (13 MB) instead.
+ * `runtime.ts` already decides at load time which provider to ask for, and on
+ * Firefox that decision was always "wasm".
+ */
+const ORT_TARGETS = {
+  chrome: { entry: 'ort.min.mjs', keep: 'ort-wasm-simd-threaded.jsep.' },
+  firefox: { entry: 'ort.wasm.min.mjs', keep: 'ort-wasm-simd-threaded.' },
+} as const;
+
+function ortFor(browser: string) {
+  return browser === 'firefox' ? ORT_TARGETS.firefox : ORT_TARGETS.chrome;
+}
 
 // https://wxt.dev/api/config.html
 export default defineConfig({
   targetBrowsers: ['chrome', 'firefox'],
   manifestVersion: 3,
 
-  vite: () => ({
+  hooks: {
+    /**
+     * `public/` holds both ORT binaries so either target can be built without a
+     * re-fetch. Only one of them is reachable at runtime, so drop the other before
+     * it is copied — otherwise every build ships 40 MB of WASM to run 13.
+     */
+    'build:publicAssets'(wxt, files) {
+      const { keep } = ortFor(wxt.config.browser);
+      for (let i = files.length - 1; i >= 0; i--) {
+        const name = files[i]!.relativeDest.replace(/\\/g, '/');
+        if (!name.startsWith('ort/ort-wasm')) continue;
+        // `keep` is a prefix of both names for Chrome's jsep pair, so match the
+        // exact stem: "…threaded." must not also accept "…threaded.jsep.".
+        const stem = name.slice('ort/'.length).replace(/(wasm|mjs)$/, '');
+        if (stem !== keep) files.splice(i, 1);
+      }
+    },
+  },
+
+  vite: ({ browser }) => ({
     resolve: {
       alias: [
         {
           // ORT's default export is the "bundle" build, which inlines the wasm loader
-          // and makes Vite emit its own hashed copy of the 27 MB binary — on top of the
-          // one we stage in public/ort/. Point at the non-bundled build instead: it
-          // fetches both loader and binary from `ort.env.wasm.wasmPaths`, so exactly one
-          // copy ships. Verified by checking the build output for stray .wasm files.
+          // and makes Vite emit its own hashed copy of the binary — on top of the one
+          // we stage in public/ort/. Point at a non-bundled build instead: it fetches
+          // both loader and binary from `ort.env.wasm.wasmPaths`, so exactly one copy
+          // ships. Verified by checking the build output for stray .wasm files.
           //
           // Anchored: the replacement would otherwise match its own output and recurse.
           find: /^onnxruntime-web$/,
-          replacement: ORT_NON_BUNDLED,
+          replacement: ortBuild(ortFor(browser).entry),
         },
       ],
     },

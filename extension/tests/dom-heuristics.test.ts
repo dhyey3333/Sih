@@ -75,6 +75,37 @@ describe('label heuristics', () => {
   });
 });
 
+/**
+ * Every case below was a miss found by the holdout set in `eval/holdout/` — pages
+ * written in idioms the demo site does not use. They are kept as unit tests so the
+ * fixes cannot quietly regress once the holdout has been run a few times.
+ */
+describe('idioms the holdout found', () => {
+  it.each([
+    ['BANK_ACC_NO', 'ACCOUNT'],
+    ['acct_no', 'ACCOUNT'],
+    ['a/c number', 'ACCOUNT'],
+    ['MOB_NO', 'PHONE'],
+    ['mobileNumber', 'PHONE'],
+  ])('classifies the abbreviated field name %s as %s', (name, expected) => {
+    expect(classifyField(field({ type: 'text', name }))?.type).toBe(expected);
+  });
+
+  it('still leaves "Account name" alone — that is a username', () => {
+    expect(classifyField(field({ type: 'text', label: 'Account name' }))).toBeNull();
+  });
+
+  it('classifies a contenteditable, which is what most design systems ship', () => {
+    expect(
+      classifyField(field({ tag: 'DIV', editable: true, label: 'Communication address' }))?.type,
+    ).toBe('ADDRESS');
+  });
+
+  it('does not classify an ordinary div, editable or not', () => {
+    expect(classifyField(field({ tag: 'DIV', label: 'Communication address' }))).toBeNull();
+  });
+});
+
 describe('precision — ordinary fields are not flagged', () => {
   it.each([
     'Search',

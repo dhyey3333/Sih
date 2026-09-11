@@ -1,0 +1,109 @@
+<!doctype html>
+<HTML LANG="en">
+<HEAD>
+<META CHARSET="utf-8">
+<TITLE>Employee Provident Fund :: Member Passbook</TITLE>
+<!--
+  HOLDOUT PAGE — not part of the demo, never opened while developing a rule.
+
+  Idiom: a 2005-vintage government portal. Nested tables for layout, uppercase tags
+  and attributes, <FONT>, inline styles, no autocomplete, no ARIA, and labels that
+  live in a sibling <TD> rather than in a <label>. Plenty of real portals still
+  look exactly like this, and it is the opposite of the markup the demo site uses.
+
+  All values are fake. Decoys are marked with data-decoy and must NOT be detected.
+-->
+<STYLE>
+  BODY { font-family: Verdana, Arial, sans-serif; font-size: 12px; background: #e9eef3; margin: 0; }
+  .hdr { background: #12507e; color: #fff; padding: 10px 14px; font-size: 15px; font-weight: bold; }
+  .bar { background: #d6e3ee; padding: 5px 14px; font-size: 11px; border-bottom: 1px solid #9ab; }
+  TABLE.form { border-collapse: collapse; margin: 14px; background: #fff; border: 1px solid #b9c6d2; }
+  TABLE.form TD { padding: 6px 10px; border: 1px solid #dde5ec; }
+  TD.lbl { background: #f2f6fa; width: 200px; font-weight: bold; color: #33475b; }
+  INPUT { font-family: inherit; font-size: 12px; padding: 3px; border: 1px solid #99a; width: 260px; }
+  .foot { margin: 14px; font-size: 11px; color: #556; }
+  .sect { background: #12507e; color: #fff; font-weight: bold; padding: 4px 10px; }
+</STYLE>
+</HEAD>
+<BODY>
+
+<DIV CLASS="hdr">Employees&rsquo; Provident Fund Organisation &mdash; Member Passbook</DIV>
+<DIV CLASS="bar">Home &gt; Member e-Sewa &gt; Passbook &gt; Update KYC</DIV>
+
+<TABLE CLASS="form" CELLPADDING="0" CELLSPACING="0" WIDTH="860">
+  <TR><TD COLSPAN="2" CLASS="sect">Member particulars</TD></TR>
+
+  <TR>
+    <TD CLASS="lbl">Member Name</TD>
+    <TD><FONT COLOR="#111"><SPAN data-pii="NAME">Meera Raghavan</SPAN></FONT></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">Date of Birth</TD>
+    <TD><SPAN data-pii="DOB">23/05/1975</SPAN></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">UAN</TD>
+    <!-- DECOY: 12 digits under a government-looking label, Verhoeff-invalid -->
+    <TD><SPAN data-decoy="uan">100000000012</SPAN></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">Aadhaar No.</TD>
+    <TD><SPAN data-pii="AADHAAR">4174 2180 9677</SPAN></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">Permanent Account No.</TD>
+    <TD><SPAN data-pii="PAN">AIZGJ0326T</SPAN></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">Passport No.</TD>
+    <TD><SPAN data-pii="PASSPORT">A7579383</SPAN></TD>
+  </TR>
+
+  <TR><TD COLSPAN="2" CLASS="sect">Bank details for settlement</TD></TR>
+
+  <TR>
+    <TD CLASS="lbl">Bank Account Number</TD>
+    <TD><INPUT TYPE="TEXT" NAME="BANK_ACC_NO" VALUE="2979262243933283" data-pii="ACCOUNT"></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">IFSC Code</TD>
+    <TD><INPUT TYPE="TEXT" NAME="IFSC_CD" VALUE="BARB0U5Q366" data-pii="IFSC"></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">Branch</TD>
+    <!-- Not PII: a branch name -->
+    <TD><INPUT TYPE="TEXT" NAME="BRANCH_NM" VALUE="Navrangpura, Ahmedabad" data-decoy="branch"></TD>
+  </TR>
+
+  <TR><TD COLSPAN="2" CLASS="sect">Contact</TD></TR>
+
+  <TR>
+    <TD CLASS="lbl">Mobile No.</TD>
+    <TD><INPUT TYPE="TEXT" NAME="MOB_NO" VALUE="9421809679" data-pii="PHONE"></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">E-Mail ID</TD>
+    <TD><INPUT TYPE="TEXT" NAME="EMAIL_ID" VALUE="meera.raghavan@example.in" data-pii="EMAIL"></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">PIN Code</TD>
+    <TD><INPUT TYPE="TEXT" NAME="PIN_CD" VALUE="688047" data-pii="PINCODE"></TD>
+  </TR>
+  <TR>
+    <TD CLASS="lbl">Login Password</TD>
+    <TD><INPUT TYPE="PASSWORD" NAME="LOGIN_PWD" VALUE="Navrang@2026" data-pii="PASSWORD"></TD>
+  </TR>
+</TABLE>
+
+<DIV CLASS="foot">
+  <!-- DECOY: an establishment code that looks like an account number -->
+  Establishment Code: GJAHD0012345000 &nbsp;|&nbsp;
+  <!-- DECOY: a toll-free helpline -->
+  Helpdesk 1800 118 005 &nbsp;|&nbsp;
+  <!-- DECOY: a PAN-shaped string with an invalid holder-type letter -->
+  Scheme code ABCXI1234K &nbsp;|&nbsp;
+  Last updated 02/09/2026
+</DIV>
+
+</BODY>
+</HTML>

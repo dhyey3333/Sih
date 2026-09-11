@@ -14,6 +14,23 @@ Scored against each page's own `data-pii` ground truth, with the demo profile lo
 | `apply.html` | 0 | — | — | — | — | 0.0% |
 | **all** | **45** | **1.000** | **0.978** | **0.989** | — | — |
 
+### Holdout — pages no rule was written against
+
+Four pages that live outside `demo-site/`, are never demonstrated, and were not
+looked at while any detector rule was written or tuned: a label-less SPA, a 2005
+table-layout portal, a bilingual statement with no form controls at all, and a
+support transcript where every value sits in running prose. This is the number
+that says whether the approach generalises.
+
+| Page | Items | Precision | Recall | F1 | Pixel recall |
+|---|---|---|---|---|---|
+| `spa.html` | 7 | 1.000 | 1.000 | 1.000 | 100.0% |
+| `legacy.html` | 11 | 1.000 | 0.909 | 0.952 | 96.2% |
+| `statement.html` | 8 | 1.000 | 0.750 | 0.857 | 78.1% |
+| `support.html` | 11 | 1.000 | 0.909 | 0.952 | 97.3% |
+| `webcomponent.html` | 5 | 1.000 | 1.000 | 1.000 | 100.0% |
+| **all** | **42** | **1.000** | **0.905** | **0.950** | — |
+
 ### What the vision layer adds
 
 | Page | Recall, DOM only | Recall, with vision |
@@ -34,6 +51,11 @@ with OCR. `Recovered` counts ground-truth values still legible afterwards.
 | `profile.html` | 0 | 0 | **0** |
 | `bank.html` | 25 | 0 | **0** |
 | `apply.html` | 0 | 0 | **0** |
+| `spa.html` | 75 | 0 | **0** |
+| `legacy.html` | 89 | 0 | **0** |
+| `statement.html` | 0 | 0 | **0** |
+| `support.html` | 0 | 0 | **0** |
+| `webcomponent.html` | 0 | 0 | **0** |
 
 ## Client resources
 
@@ -41,10 +63,12 @@ with OCR. `Recovered` counts ground-truth values still legible afterwards.
 |---|---|
 | yunet onnx | 0.2 MB |
 | ui detector onnx | 10.0 MB |
-| ort wasm | 26.5 MB |
+| ort wasm chrome | 26.5 MB |
+| ort wasm firefox | 13.3 MB |
 | tesseract core wasm | 2.7 MB |
 | tesseract lang | 1.9 MB |
-| packed extension | 45.7 MB |
+| packed chrome | 45.7 MB |
+| packed firefox | 32.2 MB |
 
 ### Face detector, by backend
 
@@ -55,8 +79,8 @@ with OCR. `Recovered` counts ground-truth values still legible afterwards.
 
 | Requested | Actually used | Session load | Inference p50 | Min | Max | First run |
 |---|---|---|---|---|---|---|
-| webgpu | wasm *(fell back)* | 120 ms | 39 ms | 36 ms | 44 ms | 47 ms |
-| wasm | wasm | 13 ms | 35 ms | 34 ms | 37 ms | 36 ms |
+| webgpu | wasm *(fell back)* | 1101 ms | 112 ms | 72 ms | 126 ms | 91 ms |
+| wasm | wasm | 35 ms | 112 ms | 103 ms | 189 ms | 109 ms |
 
 Fallback reason: `software WebGPU adapter (google swiftshader); WASM is faster`.
 
@@ -71,7 +95,7 @@ not changed, so OCR comes from cache — which is what a multi-step task actuall
 
 | Page | DOM snapshot | Detect + fuse | Vision | OCR | **Cold** | **Warm** |
 |---|---|---|---|---|---|---|
-| `kyc.html` | 9.5 ms | 0.4 ms | 91.6 ms | 372 ms | **473.5 ms** | **45.9 ms** |
-| `profile.html` | 1.1 ms | 0.2 ms | 39.4 ms | 156.8 ms | **197.5 ms** | **37.8 ms** |
-| `bank.html` | 1.6 ms | 0.2 ms | 43.1 ms | 0 ms | **44.9 ms** | **39 ms** |
-| `apply.html` | 1.2 ms | 0 ms | 38.5 ms | 0 ms | **39.7 ms** | **36.8 ms** |
+| `kyc.html` | 30.2 ms | 1.7 ms | 333.9 ms | 1614.7 ms | **1980.5 ms** | **268.7 ms** |
+| `profile.html` | 5.6 ms | 1 ms | 205.8 ms | 655.7 ms | **868.1 ms** | **147.7 ms** |
+| `bank.html` | 5.6 ms | 4.6 ms | 142 ms | 0 ms | **152.2 ms** | **291.4 ms** |
+| `apply.html` | 13.1 ms | 0.2 ms | 162.1 ms | 0 ms | **175.4 ms** | **148.5 ms** |

@@ -30,7 +30,7 @@ A Chrome + Firefox extension that reads the current tab with small on-device vis
 - `extension/`: WXT + TypeScript, Manifest V3, builds for Chrome and Firefox
 - `server/`: FastAPI (Python 3.11+), provider-agnostic VLM client
 - `ml/`: synthetic data engine (Playwright), training, ONNX export
-- `eval/`: metric scripts and test sets
+- `eval/`: metric scripts and test sets. `eval/holdout/` is the blind set — pages written in idioms the demo site does not use. **Never open one while writing or tuning a detector rule**, and never demo from it; that is the only thing that makes its number mean anything.
 - `demo-site/`: mock sites with FAKE PII for demos and tests
 - `docs/`: plan, problem statement, progress, decisions
 
@@ -41,11 +41,11 @@ A Chrome + Firefox extension that reads the current tab with small on-device vis
 - ML: Ultralytics YOLO (nano) for detection, exported to ONNX. Python deps managed with `uv`.
 
 ## Commands (keep this list current)
-- Extension (from `extension/`): `npm run dev` (Chrome), `npm run dev:firefox`, `npm run build`, `npm run build:firefox`, `npm run build:all`, `npm test`, `npm run compile` (typecheck), `npm run build:domcheck` (standalone bundle for scoring a page), `npm run assets` (restage the ORT WASM binary; runs on postinstall)
-- Server (from `server/`): `uv sync --dev`, `uv run uvicorn app.main:app --reload --port 8000`, `uv run pytest`
+- Extension (from `extension/`): `npm run dev` (Chrome), `npm run dev:firefox`, `npm run build`, `npm run build:firefox`, `npm run build:all`, `npm test`, `npm run compile` (typecheck), `npm run build:domcheck` (standalone bundle for scoring a page), `npm run uipreview` (populated side panel for design review, opens as a plain page), `npm run assets` (restage the ORT WASM binaries; runs on postinstall)
+- Server (from `server/`): `uv sync --dev`, `uv run uvicorn app.main:app --reload --port 8000`, `uv run pytest`. To exercise the VLM path with no weights: `uv run uvicorn tools.mock_vlm:app --port 8100`, then set `VLM_BASE_URL=http://localhost:8100/v1 VLM_MODEL=mock-vl`
 - Demo site: `python3 -m http.server 5173 --directory demo-site`
-- ML (from `ml/`): `uv sync && uv run playwright install chromium`, `uv run python -m synth.generate --out data/synth --per-recipe 60`, `uv run python -m synth.preview --data data/synth --split train`, `uv sync --group train && uv run python train.py --data data/synth/data.yaml --epochs 80`, `uv run --group dev pytest`
-- Eval (from the repo root): `uv sync && uv run python -m eval.run_all` — needs `extension && npm run build:domcheck` first; writes `eval/results/RESULTS.md`
+- ML (from `ml/`): `uv sync && uv run playwright install chromium`, `uv run python -m synth.generate --out data/synth --per-recipe 120`, `uv run python -m synth.preview --data data/synth --split train`, `uv sync --group train && uv run python train.py --data data/synth/data.yaml --epochs 80`, `uv run --group dev pytest`
+- Eval (from the repo root): `uv sync && uv run python -m eval.run_all` — needs `extension && npm run build:domcheck` first; writes `eval/results/RESULTS.md`. `uv run python -m eval.smoke_extension` boots the packed Chrome build in a real browser (needs `npm run build` first).
 
 ## Gotchas
 - MV3 forbids remotely hosted code: bundle onnxruntime-web's `.wasm`/`.mjs` files in the extension, point `ort.env.wasm.wasmPaths` at them, and allow `'wasm-unsafe-eval'` in the extension CSP.

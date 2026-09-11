@@ -25,6 +25,12 @@ export interface FieldDescriptor {
   autocomplete?: string;
   title?: string;
   inputMode?: string;
+  /**
+   * True for a `contenteditable` or `role="textbox"` element. Rich-text editors and
+   * most design-system "inputs" are `<div>`s, and treating them as decoration means
+   * the address someone typed into one is never classified as an address.
+   */
+  editable?: boolean;
 }
 
 export interface FieldClassification {
@@ -95,10 +101,13 @@ const KEYWORD_RULES: readonly KeywordRule[] = [
   { type: 'CARD', name: 'kw:card', pattern: /\b((credit|debit|atm)\s*card|card\s*(number|no\.?)|cardnumber)\b/, confidence: 0.95 },
   { type: 'IFSC', name: 'kw:ifsc', pattern: /\b(ifsc|swift\s*code|micr)\b/, confidence: 0.95 },
   { type: 'UPI', name: 'kw:upi', pattern: /\b(upi|vpa|virtual\s+payment\s+address)\b/, confidence: 0.94 },
-  { type: 'ACCOUNT', name: 'kw:account', pattern: /\b(account\s*(number|no\.?)|a\/c\s*(number|no\.?)|bank\s*account)\b/, confidence: 0.94 },
+  // `acc`/`acct`/`a/c` are how real portals abbreviate this — `BANK_ACC_NO` is a
+  // verbatim field name from a live government form. A suffix is still required, so
+  // "Account name" (a username) does not match.
+  { type: 'ACCOUNT', name: 'kw:account', pattern: /\b(?:a\/c|acct?|account)\s*(?:number|no\.?|#)\b|\bbank\s*acc(?:oun)?t?\b/, confidence: 0.94 },
   { type: 'OTP', name: 'kw:otp', pattern: /\b(otp|one[\s-]?time\s*(code|password|pin)|verification\s*code|auth\s*code)\b/, confidence: 0.94 },
   { type: 'EMAIL', name: 'kw:email', pattern: /\b(e[\s-]?mail|email\s*(id|address)?)\b/, confidence: 0.95 },
-  { type: 'PHONE', name: 'kw:phone', pattern: /\b(mobile|phone|contact\s*(number|no\.?)|whatsapp|telephone|msisdn)\b/, confidence: 0.94 },
+  { type: 'PHONE', name: 'kw:phone', pattern: /\b(mob(?:ile)?|phone|contact\s*(number|no\.?)|whatsapp|telephone|msisdn)\b/, confidence: 0.94 },
   { type: 'DOB', name: 'kw:dob', pattern: /\b(dob|date\s*of\s*birth|birth\s*date|birthday)\b/, confidence: 0.94 },
   { type: 'PINCODE', name: 'kw:pincode', pattern: /\b(pin\s*code|pincode|postal\s*code|post\s*code|zip\s*code|\bzip\b)\b/, confidence: 0.92 },
   { type: 'ADDRESS', name: 'kw:address', pattern: /\b(address|street|locality|landmark|house\s*no|flat\s*no|city|district|residence)\b/, confidence: 0.88 },
@@ -150,7 +159,7 @@ export function classifyField(f: FieldDescriptor): FieldClassification | null {
   }
 
   if (tag === 'input' && INERT_INPUT_TYPES.has(type)) return null;
-  if (tag !== 'input' && tag !== 'textarea' && tag !== 'select') return null;
+  if (tag !== 'input' && tag !== 'textarea' && tag !== 'select' && !f.editable) return null;
 
   // The page author's own declaration beats any heuristic of ours.
   const autocomplete = (f.autocomplete ?? '').toLowerCase().trim();

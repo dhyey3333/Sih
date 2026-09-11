@@ -12,6 +12,7 @@
  */
 
 import type { Rect } from '../protocol';
+import { shadowRootsUnder } from './shadow';
 
 export interface TextPiece {
   node: Text;
@@ -59,17 +60,26 @@ export function collectTextBlocks(root: ParentNode & Node, options: CollectOptio
   const blocks = new Map<Element, TextBlock>();
   let budget = maxChars;
 
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement;
-      if (!parent || SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
-      if (!(node as Text).data.trim()) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
+  // A TreeWalker stops at a shadow boundary, so each open root is walked in turn.
+  // Without this, text rendered by a web component is not scanned at all — it is
+  // still in the screenshot, so it would go out unredacted (lib/dom/shadow.ts).
+  const texts: Text[] = [];
+  for (const scope of [root, ...shadowRootsUnder(root)]) {
+    const walker = document.createTreeWalker(scope as Node, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        if (!(node as Text).data.trim()) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      texts.push(node as Text);
+    }
+  }
 
-  for (let node = walker.nextNode(); node && budget > 0; node = walker.nextNode()) {
-    const text = node as Text;
+  for (const text of texts) {
+    if (budget <= 0) break;
     const parent = text.parentElement;
     if (!parent) continue;
 

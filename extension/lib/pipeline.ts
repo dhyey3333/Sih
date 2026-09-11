@@ -82,6 +82,12 @@ export interface PipelineOutput {
    * space, so divide by this before handing it to the page.
    */
   imageScale: number;
+  /**
+   * Viewport size in CSS pixels. The side panel needs it to place detection
+   * outlines over the preview as percentages — the preview is scaled to the
+   * panel's width, so any absolute unit would be wrong.
+   */
+  viewport: { w: number; h: number };
   /** Set by the agent when the vision layer ran. Reported in the metrics panel. */
   visionStats?: VisionStats;
   timings: ReturnType<Stopwatch['finish']>;
@@ -183,6 +189,7 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     disclosureLevel,
     areaRatio,
     imageScale: rendered.scale,
+    viewport: snapshot.viewport,
     timings: watch.finish(),
   };
 }

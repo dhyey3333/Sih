@@ -74,6 +74,17 @@ describe('context-dependent rules', () => {
     expect(typesIn(`Model ${FAKE.passport} in stock`)).not.toContain('PASSPORT');
     expect(typesIn(`Passport number ${FAKE.passport}`)).toContain('PASSPORT');
   });
+
+  // Found by the holdout: prose says "refund it to account 1139309559" far more
+  // often than it says "account number", and the rule only accepted the latter.
+  it('reads an account number after the bare word "account"', () => {
+    expect(typesIn('Refund it to account 1139309559 please')).toContain('ACCOUNT');
+  });
+
+  it('still ignores a long number with no account context at all', () => {
+    expect(typesIn('NEFT to 1139309559 (Sharma & Sons)')).not.toContain('ACCOUNT');
+    expect(typesIn('Order 870000012345 shipped')).not.toContain('ACCOUNT');
+  });
 });
 
 describe('UPI vs email', () => {

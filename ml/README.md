@@ -50,7 +50,7 @@ Three details that took measuring to get right:
 ```bash
 uv sync
 uv run playwright install chromium
-uv run python -m synth.generate --out data/synth --per-recipe 60
+uv run python -m synth.generate --out data/synth --per-recipe 120
 ```
 
 Then **look at the labels** — a labelling bug is invisible in the summary counts and

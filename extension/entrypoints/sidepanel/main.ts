@@ -29,9 +29,12 @@ const vault = new Vault();
 const vision = new VisionLayer();
 
 let agent: Agent | null = null;
-let lastOutput: PipelineOutput | null = null;
+let running = false;
 let standaloneStep = 0;
 let logCount = 0;
+
+/** Session ledger. Every field is counted, never asserted. */
+const ledger = { requests: 0, bytes: 0, local: 0 };
 
 /** Resolver for the confirmation gate, set while the sheet is open. */
 let pendingConfirm: ((approved: boolean) => void) | null = null;
@@ -52,10 +55,14 @@ const ui = {
 
   stage: $('stage'),
   stageEmpty: $('stage-empty'),
-  stageLegend: $('stage-legend'),
   stageReveal: $('stage-reveal'),
   stageDivider: $('stage-divider'),
   stageSlider: $<HTMLInputElement>('stage-slider'),
+  stageBoxes: $('stage-boxes'),
+  stageModes: $('stage-modes'),
+  segmentedPill: $('segmented-pill'),
+  badgeLeft: $('stage-badge-left'),
+  badgeRight: $('stage-badge-right'),
   previewOriginal: $<HTMLImageElement>('preview-original'),
   previewSanitized: $<HTMLImageElement>('preview-sanitized'),
 
@@ -63,7 +70,6 @@ const ui = {
   run: $<HTMLButtonElement>('run'),
   presets: $('presets'),
   analyze: $<HTMLButtonElement>('analyze'),
-  stop: $<HTMLButtonElement>('stop'),
   clear: $<HTMLButtonElement>('clear'),
   error: $('error'),
 
@@ -77,6 +83,11 @@ const ui = {
   metricLevel: $('metric-level'),
   statLatency: $('stat-latency'),
   statVault: $('stat-vault'),
+
+  ledger: $('ledger'),
+  statRequests: $('stat-requests'),
+  statSent: $('stat-sent'),
+  statLocal: $('stat-local'),
 
   panelDetections: $<HTMLDetailsElement>('panel-detections'),
   detections: $('detections'),
@@ -100,6 +111,7 @@ const ui = {
   serverStatus: $('server-status'),
 
   confirm: $('confirm'),
+  confirmScrim: $('confirm-scrim'),
   confirmQuestion: $('confirm-question'),
   confirmYes: $<HTMLButtonElement>('confirm-yes'),
   confirmNo: $<HTMLButtonElement>('confirm-no'),
@@ -134,10 +146,17 @@ function showError(message: string | null): void {
   if (message) ui.error.textContent = message;
 }
 
-function setRunning(running: boolean): void {
-  ui.run.disabled = running;
-  ui.analyze.disabled = running;
-  ui.stop.disabled = !running;
+/**
+ * One control is both Run and Stop. Two buttons where only one is ever usable is
+ * a row of dead pixels; a control that changes state is legible at a glance.
+ */
+function setRunning(active: boolean): void {
+  running = active;
+  ui.run.dataset.running = String(active);
+  ui.run.title = active ? 'Stop' : 'Run task';
+  ui.run.setAttribute('aria-label', active ? 'Stop the task' : 'Run task');
+  ui.analyze.disabled = active;
+  ui.stage.dataset.busy = String(active);
 }
 
 /* ------------------------------------------------------------------ *
@@ -161,6 +180,7 @@ function askConfirmation(question: string): Promise<boolean> {
 
 ui.confirmYes.addEventListener('click', () => pendingConfirm?.(true));
 ui.confirmNo.addEventListener('click', () => pendingConfirm?.(false));
+ui.confirmScrim.addEventListener('click', () => pendingConfirm?.(false));
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && pendingConfirm) pendingConfirm(false);
 });
@@ -169,21 +189,110 @@ document.addEventListener('keydown', (event) => {
  * The comparison wipe
  * ------------------------------------------------------------------ */
 
+/** 0 = show only what the server gets; 100 = show only your screen. */
 function setReveal(percent: number): void {
   const clamped = Math.min(100, Math.max(0, percent));
   ui.stage.style.setProperty('--reveal', `${clamped}%`);
+  ui.badgeLeft.style.opacity = clamped > 14 ? '1' : '0';
+  ui.badgeRight.style.opacity = clamped < 86 ? '1' : '0';
 }
 
-ui.stageSlider.addEventListener('input', () => setReveal(Number(ui.stageSlider.value)));
+ui.stageSlider.addEventListener('input', () => {
+  setReveal(Number(ui.stageSlider.value));
+  // Dragging past either edge is a deliberate choice of view; keep the
+  // segmented control honest about which one is showing.
+  const value = Number(ui.stageSlider.value);
+  setMode(value >= 99 ? 'original' : value <= 1 ? 'sent' : 'compare', false);
+});
+
+type Mode = 'original' | 'compare' | 'sent';
+const MODE_REVEAL: Record<Mode, number> = { original: 100, compare: 55, sent: 0 };
+const MODE_ORDER: Mode[] = ['original', 'compare', 'sent'];
+
+function setMode(mode: Mode, move = true): void {
+  ui.segmentedPill.style.translate = `${MODE_ORDER.indexOf(mode) * 100}% 0`;
+  for (const button of ui.stageModes.querySelectorAll<HTMLButtonElement>('button')) {
+    const on = button.dataset.mode === mode;
+    button.classList.toggle('is-on', on);
+    button.setAttribute('aria-pressed', String(on));
+  }
+  if (move) {
+    ui.stageSlider.value = String(MODE_REVEAL[mode]);
+    setReveal(MODE_REVEAL[mode]);
+  }
+}
+
+ui.stageModes.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLElement>('[data-mode]');
+  if (button) setMode(button.dataset.mode as Mode);
+});
 
 function showPreview(originalUrl: string, sanitizedUrl: string): void {
   ui.stageEmpty.hidden = true;
   ui.previewOriginal.src = originalUrl || sanitizedUrl;
   ui.previewSanitized.src = sanitizedUrl;
-  for (const el of [ui.previewOriginal, ui.stageReveal, ui.stageDivider, ui.stageSlider, ui.stageLegend]) {
+  for (const el of [
+    ui.previewOriginal,
+    ui.stageReveal,
+    ui.stageDivider,
+    ui.stageSlider,
+    ui.stageModes,
+    ui.badgeLeft,
+    ui.badgeRight,
+  ]) {
     el.hidden = false;
   }
   setReveal(Number(ui.stageSlider.value));
+}
+
+function clearPreview(): void {
+  for (const el of [
+    ui.previewOriginal,
+    ui.stageReveal,
+    ui.stageDivider,
+    ui.stageSlider,
+    ui.stageModes,
+    ui.badgeLeft,
+    ui.badgeRight,
+  ]) {
+    el.hidden = true;
+  }
+  ui.stageEmpty.hidden = false;
+  ui.previewOriginal.removeAttribute('src');
+  ui.previewSanitized.removeAttribute('src');
+  ui.stageBoxes.replaceChildren();
+}
+
+/**
+ * Outline every redaction on the sanitized half. The boxes are positioned as a
+ * percentage of the viewport rather than in pixels: the preview is scaled to
+ * whatever width the panel happens to have, so pixels would be wrong at every
+ * size but one.
+ */
+function renderBoxes(output: PipelineOutput): void {
+  ui.stageBoxes.replaceChildren();
+  const { w, h } = output.viewport;
+  if (!w || !h) return;
+
+  output.detections.forEach((d, index) => {
+    const box = document.createElement('div');
+    box.className = 'stage__box';
+    box.dataset.det = d.id;
+    if (d.type === 'FACE') box.dataset.kind = 'face';
+    box.style.left = `${(d.bbox.x / w) * 100}%`;
+    box.style.top = `${(d.bbox.y / h) * 100}%`;
+    box.style.width = `${(d.bbox.w / w) * 100}%`;
+    box.style.height = `${(d.bbox.h / h) * 100}%`;
+    // Stagger, capped: 30 detections should not take three seconds to appear.
+    box.style.animationDelay = `${Math.min(index * 28, 600)}ms`;
+    ui.stageBoxes.append(box);
+  });
+}
+
+function lightBox(id: string | null): void {
+  for (const box of ui.stageBoxes.querySelectorAll<HTMLElement>('.stage__box')) {
+    box.classList.toggle('is-lit', box.dataset.det === id);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -274,6 +383,7 @@ function renderDetections(detections: Detection[]): void {
 
   for (const d of detections) {
     const li = document.createElement('li');
+    li.dataset.det = d.id;
 
     const type = document.createElement('span');
     type.className =
@@ -287,6 +397,11 @@ function renderDetections(detections: Detection[]): void {
     const src = document.createElement('span');
     src.className = 'src';
     src.textContent = `${d.source} · ${Math.round(d.confidence * 100)}%`;
+
+    // Pointing at a row points at the pixels. This is the fastest way for a
+    // sceptic to check that a given box covers the thing it claims to.
+    li.addEventListener('pointerenter', () => lightBox(d.id));
+    li.addEventListener('pointerleave', () => lightBox(null));
 
     li.append(type, token, src);
     ui.detections.append(li);
@@ -345,7 +460,7 @@ function renderTimings(timings: StageTimings): void {
 
   const wall = entries.reduce((sum, [, ms]) => sum + ms, 0);
   ui.timingsTotal.textContent = `${Math.round(wall)} ms`;
-  ui.statLatency.textContent = `${Math.round(wall)}`;
+  countTo(ui.statLatency, Math.round(wall));
 }
 
 /** The payload, with the screenshot summarised rather than inlined. */
@@ -417,6 +532,48 @@ function updateVaultStat(): void {
   ui.statVault.textContent = String(vault.size);
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function renderLedger(): void {
+  ui.statRequests.textContent = String(ledger.requests);
+  ui.statSent.textContent = formatBytes(ledger.bytes);
+  ui.statLocal.textContent = String(ledger.local);
+  ui.ledger.dataset.sent = String(ledger.bytes > 0);
+}
+
+/**
+ * Animate a metric to its new value. Short, eased, and skipped entirely under
+ * `prefers-reduced-motion` — the point is that the number *moved*, not the show.
+ */
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const counters = new WeakMap<HTMLElement, number>();
+
+function countTo(el: HTMLElement, target: number, suffix = ''): void {
+  const from = counters.get(el) ?? 0;
+  counters.set(el, target);
+
+  if (reduceMotion.matches || from === target) {
+    el.textContent = `${target}${suffix}`;
+    return;
+  }
+
+  const start = performance.now();
+  const duration = 420;
+  const tick = (now: number): void => {
+    // Only this element's most recent target may keep writing to it.
+    if (counters.get(el) !== target) return;
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = `${Math.round(from + (target - from) * eased)}${suffix}`;
+    if (t < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 const DISCLOSURE_NOTE: Record<number, string> = {
   0: 'Handled locally — no request was made.',
   1: 'Structure only — no screenshot was sent.',
@@ -424,10 +581,8 @@ const DISCLOSURE_NOTE: Record<number, string> = {
 };
 
 function renderOutput(output: PipelineOutput): void {
-  lastOutput = output;
-
-  ui.statDetections.textContent = String(output.detections.length);
-  ui.statArea.textContent = `${Math.round(output.areaRatio * 100)}%`;
+  countTo(ui.statDetections, output.detections.length);
+  countTo(ui.statArea, Math.round(output.areaRatio * 100), '%');
   ui.statLevel.textContent = `L${output.disclosureLevel}`;
   ui.metricLevel.dataset.level = String(output.disclosureLevel);
   ui.metricLevel.title = DISCLOSURE_NOTE[output.disclosureLevel] ?? '';
@@ -440,6 +595,7 @@ function renderOutput(output: PipelineOutput): void {
   renderVisionStatus(output);
 
   showPreview(output.originalDataUrl ?? '', output.redactedDataUrl);
+  renderBoxes(output);
   if (output.detections.length > 0) ui.panelDetections.open = true;
 }
 
@@ -513,6 +669,7 @@ async function run(): Promise<void> {
     onPerceived: renderOutput,
     onStep: (report: StepReport) => {
       renderTimings(report.output.timings);
+      countLedger(report);
       if (report.result?.ok) log(`✓ ${describeAction(report.response)}`);
       if (report.response.planner) {
         ui.visionStatus.title =
@@ -526,6 +683,20 @@ async function run(): Promise<void> {
 
   setRunning(false);
   agent = null;
+}
+
+/**
+ * The ledger counts what actually happened on the wire. An L0 step never made a
+ * request, so it adds to "handled on-device" and to nothing else.
+ */
+function countLedger(report: StepReport): void {
+  if (report.response.planner === 'local') {
+    ledger.local += 1;
+  } else {
+    ledger.requests += 1;
+    ledger.bytes += new Blob([JSON.stringify(report.output.request)]).size;
+  }
+  renderLedger();
 }
 
 async function checkServer(): Promise<void> {
@@ -553,11 +724,20 @@ function capitalise(text: string): string {
  * ------------------------------------------------------------------ */
 
 ui.analyze.addEventListener('click', () => void analyze());
-ui.run.addEventListener('click', () => void run());
 ui.checkServer.addEventListener('click', () => void checkServer());
 
+ui.run.addEventListener('click', () => {
+  if (running) {
+    agent?.stop();
+    pendingConfirm?.(false);
+    log('Stop requested.');
+    return;
+  }
+  void run();
+});
+
 ui.task.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') void run();
+  if (event.key === 'Enter' && !running) void run();
 });
 
 ui.presets.addEventListener('click', (event) => {
@@ -567,32 +747,35 @@ ui.presets.addEventListener('click', (event) => {
   ui.task.focus();
 });
 
-ui.stop.addEventListener('click', () => {
-  agent?.stop();
-  pendingConfirm?.(false);
-  log('Stop requested.');
+// ⌘K / Ctrl-K puts the cursor in the prompt from anywhere in the panel.
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    ui.task.focus();
+    ui.task.select();
+  }
 });
 
 ui.clear.addEventListener('click', () => {
   agent?.stop();
   vault.clearSession();
   standaloneStep = 0;
-  lastOutput = null;
+  ledger.requests = 0;
+  ledger.bytes = 0;
+  ledger.local = 0;
 
-  for (const el of [ui.previewOriginal, ui.stageReveal, ui.stageDivider, ui.stageSlider, ui.stageLegend]) {
-    el.hidden = true;
-  }
-  ui.stageEmpty.hidden = false;
-  ui.previewOriginal.removeAttribute('src');
-  ui.previewSanitized.removeAttribute('src');
-
+  clearPreview();
   renderDetections([]);
   renderTimings({});
+  renderLedger();
   ui.payload.textContent = '—';
   ui.guard.dataset.state = 'idle';
-  ui.guardTitle.textContent = 'Egress guard';
-  ui.guardDetail.textContent = 'Nothing has left this device';
-  for (const el of [ui.statDetections, ui.statArea, ui.statLevel, ui.statLatency]) el.textContent = '—';
+  ui.guardTitle.textContent = 'Egress guard armed';
+  ui.guardDetail.textContent = 'Every payload is re-scanned before it is sent';
+  for (const el of [ui.statDetections, ui.statArea, ui.statLevel, ui.statLatency]) {
+    el.textContent = '—';
+    counters.delete(el);
+  }
   delete ui.metricLevel.dataset.level;
   updateVaultStat();
   setStatus('idle', 'Ready');
@@ -632,6 +815,8 @@ void (async () => {
   await Promise.all([restoreProfile(), restoreServerUrl()]);
   buildProfileForm();
   updateVaultStat();
+  renderLedger();
+  setMode('compare');
   setStatus('idle', 'Ready');
   log('Ready. Nothing has left this device.');
 })();

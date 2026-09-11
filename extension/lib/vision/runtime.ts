@@ -18,11 +18,13 @@
  * not a nicety — it is the only path on one of the two required browsers.
  */
 
-// The default entry is ORT's "jsep" build, which carries the WebGPU execution
-// provider and the plain WASM one in a single 27 MB binary. `onnxruntime-web/webgpu`
-// is a *different* build ("asyncify", 25 MB) — importing that one and staging jsep,
-// or vice versa, silently ships 50 MB and loads neither. wxt.config.ts aliases this
-// to the non-bundled variant so Vite does not emit a second copy of the wasm.
+// `wxt.config.ts` aliases this import per target: Chrome gets ORT's "jsep" build
+// (WebGPU + WASM in one 27 MB binary), Firefox the plain WASM build (13 MB), since
+// it has no WebGPU to use. Both are non-bundled variants, so Vite does not emit a
+// second copy of the wasm beside the one staged in public/ort/.
+//
+// `onnxruntime-web/webgpu` is a *third* build ("asyncify", 25 MB) — importing one
+// and staging another silently ships 50 MB and loads neither.
 import * as ort from 'onnxruntime-web';
 import type { PublicPath } from 'wxt/browser';
 
@@ -61,10 +63,13 @@ function assetUrl(path: PublicPath): string {
 function configure(): void {
   if (configured) return;
 
-  // Bundled, not fetched — see constraint 1 above. WXT types the path against the
-  // files actually in `public/`, so ask for the binary and trim to its directory
-  // rather than hand-writing a path that could silently stop existing.
-  ort.env.wasm.wasmPaths = assetUrl('/ort/ort-wasm-simd-threaded.jsep.wasm').replace(/[^/]+$/, '');
+  // Bundled, not fetched — see constraint 1 above. ORT appends its own filename to
+  // this prefix, and which filename that is depends on which build this target was
+  // aliased to, so only the *directory* is used. The file named below is a handle
+  // for that directory, not something we fetch: it exists in `public/` (which is
+  // what WXT type-checks the argument against) and only one of the two binaries is
+  // copied into any given build.
+  ort.env.wasm.wasmPaths = assetUrl('/ort/ort-wasm-simd-threaded.mjs').replace(/[^/]+$/, '');
   ort.env.wasm.numThreads = 1;
   ort.env.logLevel = 'error';
   configured = true;

@@ -20,14 +20,21 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /**
- * The `.jsep` build is the one that carries the WebGPU execution provider *and*
- * the plain WASM one in a single binary, so a browser without WebGPU (Firefox
- * today) falls back inside the same file rather than needing a second download.
+ * Two ORT binaries, because the browsers genuinely differ.
+ *
+ * `.jsep` carries the WebGPU execution provider as well as the plain WASM one, in
+ * a single 27 MB file. The plain build is 13 MB and has no WebGPU at all. Firefox
+ * has no WebGPU today, so shipping it the larger binary is 14 MB that can never
+ * execute — `wxt.config.ts` picks one per target and drops the other from the
+ * output. Both are staged here; neither is committed.
  */
 const RUNTIME_FILES = [
   ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm', 'public/ort/ort-wasm-simd-threaded.jsep.wasm'],
   // The loader that ORT fetches from `wasmPaths` before the binary itself.
   ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs', 'public/ort/ort-wasm-simd-threaded.jsep.mjs'],
+
+  ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm', 'public/ort/ort-wasm-simd-threaded.wasm'],
+  ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs', 'public/ort/ort-wasm-simd-threaded.mjs'],
 
   // Tesseract.js, for reading text out of images. Same reasoning as ORT: MV3 forbids
   // remotely hosted code, and the library's default is to pull these from a CDN.

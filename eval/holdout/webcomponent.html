@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Space Applications Centre — Visitor pass request</title>
+<!--
+  HOLDOUT PAGE — not part of the demo.
+
+  Idiom: a design system built on web components. Every field lives inside an open
+  shadow root, which `document.querySelectorAll` and a `TreeWalker` both refuse to
+  cross. Before `lib/dom/shadow.ts` existed, this page looked to the DOM layer like
+  a page with no form on it at all — nothing classified, nothing redacted, nothing
+  for the agent to act on.
+
+  The last card is deliberately a *closed* shadow root. Nothing in a content script
+  can read it, so its contents are expected to be missed and are annotated
+  data-unreachable rather than data-pii. Scoring them as recall failures would
+  imply a fix exists; there isn't one.
+
+  All values are fake. Decoys are marked with data-decoy and must NOT be detected.
+-->
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #0f1419; color: #e6edf3; }
+  .page { max-width: 640px; margin: 0 auto; padding: 26px 20px 60px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .sub { font-size: 12px; color: #8b98a5; margin: 0 0 22px; }
+  .card { background: #161b22; border: 1px solid #232b34; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #8b98a5; margin: 0 0 12px; }
+  .foot { font-size: 11px; color: #6e7b8a; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Visitor pass request</h1>
+  <p class="sub">Gate 3 · valid for one day · approval required</p>
+
+  <div class="card">
+    <h2>Visitor</h2>
+    <gov-field label="Full name" value="Meera Raghavan" pii="NAME"></gov-field>
+    <gov-field label="Aadhaar number" value="9877 8932 8793" pii="AADHAAR"></gov-field>
+    <gov-field label="Mobile number" value="9893287921" pii="PHONE"></gov-field>
+    <gov-field label="Email address" value="meera.raghavan@example.in" pii="EMAIL"></gov-field>
+  </div>
+
+  <div class="card">
+    <h2>Nested component — vehicle</h2>
+    <gov-section>
+      <gov-field label="Driving licence" value="A7579383" pii="PASSPORT"></gov-field>
+      <!-- DECOY: a vehicle registration, not an ID -->
+      <gov-field label="Vehicle number" value="GJ01AB1234" decoy="vehicle"></gov-field>
+      <!-- DECOY: a gate pass serial, 12 digits, Verhoeff-invalid -->
+      <gov-field label="Pass serial" value="100000000012" decoy="serial"></gov-field>
+    </gov-section>
+  </div>
+
+  <div class="card">
+    <h2>Closed component — cannot be read from a content script</h2>
+    <gov-sealed></gov-sealed>
+    <p class="foot" style="margin-top:10px">
+      This card's shadow root is closed. Nothing running in the page can reach it,
+      including us — which is why it is annotated as unreachable rather than missed.
+    </p>
+  </div>
+
+  <p class="foot">
+    <!-- DECOY: a public helpline and a result count -->
+    Security desk 1800 233 4455. Showing 1234 of 5678 passes issued this month.
+  </p>
+</div>
+
+<script>
+  /* A minimal design-system field: label and input inside an open shadow root.
+     The ground-truth attribute is mirrored onto the inner input, because that is
+     the element whose rect the eval harness must measure. */
+  class GovField extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'open' });
+      const label = this.getAttribute('label') ?? '';
+      const value = this.getAttribute('value') ?? '';
+      root.innerHTML = `
+        <style>
+          :host { display: block; margin-bottom: 10px; }
+          label { display: block; font-size: 11px; color: #8b98a5; margin-bottom: 4px; }
+          input { width: 100%; box-sizing: border-box; padding: 7px 9px; font: inherit;
+                  font-size: 13px; color: #e6edf3; background: #0f1419;
+                  border: 1px solid #2b3440; border-radius: 7px; }
+        </style>
+        <label></label><input type="text" />`;
+      root.querySelector('label').textContent = label;
+      const input = root.querySelector('input');
+      input.value = value;
+      input.setAttribute('aria-label', label);
+      if (this.hasAttribute('pii')) input.setAttribute('data-pii', this.getAttribute('pii'));
+      if (this.hasAttribute('decoy')) input.setAttribute('data-decoy', this.getAttribute('decoy'));
+    }
+  }
+  customElements.define('gov-field', GovField);
+
+  /* A component that slots other components: the shadow roots nest. */
+  class GovSection extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>:host{display:block}</style><slot></slot>`;
+    }
+  }
+  customElements.define('gov-section', GovSection);
+
+  /* Closed: no `shadowRoot` property is exposed to anyone. */
+  class GovSealed extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'closed' });
+      root.innerHTML = `
+        <style>
+          label { display:block; font-size:11px; color:#8b98a5; margin-bottom:4px; }
+          input { width:100%; box-sizing:border-box; padding:7px 9px; font:inherit;
+                  font-size:13px; color:#e6edf3; background:#0f1419;
+                  border:1px solid #2b3440; border-radius:7px; }
+        </style>
+        <label>PAN (sealed component)</label>
+        <input type="text" value="BOZLF8378G" data-unreachable="PAN" />`;
+    }
+  }
+  customElements.define('gov-sealed', GovSealed);
+</script>
+</body>
+</html>

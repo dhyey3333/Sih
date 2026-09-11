@@ -94,6 +94,16 @@ function proximityLabelText(el: Element): string {
   return '';
 }
 
+/** Anything the user types into: its text content is data, not a name. */
+function isTextEntry(el: Element): boolean {
+  return (
+    el.getAttribute('contenteditable') !== null ||
+    el.getAttribute('role') === 'textbox' ||
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement
+  );
+}
+
 export function accessibleName(el: Element): string {
   const ariaLabelledBy = labelledByText(el);
   if (ariaLabelledBy) return ariaLabelledBy;
@@ -115,9 +125,14 @@ export function accessibleName(el: Element): string {
   const title = el.getAttribute('title')?.trim();
   if (title) return title;
 
-  // Buttons and links carry their name as content; inputs never do.
-  const own = textOf(el);
-  if (own && own.length <= 200) return own;
+  // Buttons and links carry their name as content; inputs never do — and neither
+  // does a contenteditable, whose content is its *value*. Letting one name itself
+  // makes an address box report "14/2 Sardar Patel Marg" as its label, which reads
+  // as a field with no label at all and silently defeats every keyword rule.
+  if (!isTextEntry(el)) {
+    const own = textOf(el);
+    if (own && own.length <= 200) return own;
+  }
 
   return proximityLabelText(el);
 }
