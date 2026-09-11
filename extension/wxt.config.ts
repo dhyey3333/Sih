@@ -43,6 +43,19 @@ export default defineConfig({
   targetBrowsers: ['chrome', 'firefox'],
   manifestVersion: 3,
 
+  /**
+   * `npm run dev` otherwise opens a browser on `about:blank`, which looks exactly
+   * like a failed launch. Start on the demo page instead, so the first thing on
+   * screen is something to press Analyze on.
+   *
+   * Chrome also prints an "unsupported command-line flag" banner in this window.
+   * That is the automation flag `web-ext` passes, not our extension, and it appears
+   * in every WXT dev session; the packed build has nothing to do with it.
+   */
+  webExt: {
+    startUrls: ['http://localhost:5173/kyc.html'],
+  },
+
   hooks: {
     /**
      * `public/` holds both ORT binaries so either target can be built without a
