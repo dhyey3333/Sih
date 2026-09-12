@@ -89,7 +89,13 @@ const ui = {
   statSent: $('stat-sent'),
   statLocal: $('stat-local'),
 
+  result: $('result'),
+  resultTitle: $('result-title'),
+  resultText: $('result-text'),
+  resultDismiss: $<HTMLButtonElement>('result-dismiss'),
+
   panelDetections: $<HTMLDetailsElement>('panel-detections'),
+  panelActivity: $<HTMLDetailsElement>('panel-activity'),
   detections: $('detections'),
   detectionsCount: $('detections-count'),
   timings: $('timings'),
@@ -145,6 +151,25 @@ function log(message: string, kind: 'info' | 'err' = 'info'): void {
 function showError(message: string | null): void {
   ui.error.hidden = !message;
   if (message) ui.error.textContent = message;
+}
+
+/**
+ * What the agent concluded, where the user is already looking.
+ *
+ * For a form-filling task the visible proof is the page itself. For a question —
+ * "describe this page" — the summary *is* the whole answer, and it used to go only
+ * into the collapsed Activity list, so a completed task looked like nothing had
+ * happened at all.
+ */
+function showResult(title: string, text: string, kind: 'done' | 'stopped' = 'done'): void {
+  ui.result.dataset.kind = kind;
+  ui.resultTitle.textContent = title;
+  ui.resultText.textContent = text;
+  ui.result.hidden = false;
+}
+
+function hideResult(): void {
+  ui.result.hidden = true;
 }
 
 /**
@@ -662,6 +687,10 @@ async function run(): Promise<void> {
 
   setRunning(true);
   showError(null);
+  hideResult();
+  // Open the log for the duration: a multi-step task is the one time the user
+  // wants to watch it work, and a collapsed panel makes it look like nothing is.
+  ui.panelActivity.open = true;
   agent = makeAgent();
   log(`Task: ${task}`);
 
@@ -672,6 +701,13 @@ async function run(): Promise<void> {
     onStep: (report: StepReport) => {
       renderTimings(report.output.timings);
       countLedger(report);
+      if (report.response.action === 'done') {
+        // For a question, this text is the whole answer.
+        showResult(
+          'Task complete',
+          report.response.summary ?? 'Finished, but the planner gave no summary.',
+        );
+      }
       if (report.result?.ok) log(`✓ ${describeAction(report.response)}`);
       if (report.response.planner) {
         ui.visionStatus.title =
@@ -725,6 +761,8 @@ function capitalise(text: string): string {
  * Wiring
  * ------------------------------------------------------------------ */
 
+ui.resultDismiss.addEventListener('click', hideResult);
+
 ui.analyze.addEventListener('click', () => void analyze());
 ui.checkServer.addEventListener('click', () => void checkServer());
 
@@ -767,6 +805,7 @@ ui.clear.addEventListener('click', () => {
   ledger.local = 0;
 
   clearPreview();
+  hideResult();
   renderDetections([]);
   renderTimings({});
   renderLedger();

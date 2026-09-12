@@ -819,6 +819,84 @@ svg { display: block; }
   border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
+/* ── Result: what the agent concluded ──────────────────────────────── */
+
+.result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: var(--r-lg);
+  background: var(--accent-wash);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  animation: enter 0.4s var(--ease);
+}
+
+.result__icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 99px;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.result__icon svg { width: 15px; height: 15px; }
+
+/* The tick draws itself, so a result that arrives is visibly an event. */
+.result__tick {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: draw 0.4s var(--ease) 0.1s forwards;
+}
+
+.result__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.result__body b {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+}
+
+.result__body p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  overflow-wrap: break-word;
+}
+
+.result__close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 99px;
+  color: var(--ink-3);
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.result__close svg { width: 13px; height: 13px; }
+.result__close:hover { color: var(--ink); background: var(--raised); }
+
+.result[data-kind="stopped"] {
+  background: var(--danger-wash);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
+.result[data-kind="stopped"] .result__icon { background: var(--danger); color: #fff; }
+.result[data-kind="stopped"] .result__body b { color: var(--danger); }
+
 /* ── Guard ─────────────────────────────────────────────────────────── */
 
 .guard {

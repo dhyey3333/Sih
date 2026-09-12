@@ -151,6 +151,34 @@
           </div>
 
           <p id="error" class="notice notice--error" hidden></p>
+
+          <!--
+            The agent's answer.
+
+            Without this the only sign a task finished was the status pill turning
+            green, and the summary — which for "describe this page" *is* the entire
+            answer — went into the Activity panel, collapsed, unread. A result the
+            user has to go looking for is a result that did not arrive.
+          -->
+          <section class="result" id="result" data-kind="done" hidden>
+            <span class="result__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path class="result__tick" d="M5 12.5 10 17.5 19 7"
+                      stroke="currentColor" stroke-width="2.2"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <div class="result__body">
+              <b id="result-title">Task complete</b>
+              <p id="result-text"></p>
+            </div>
+            <button id="result-dismiss" class="result__close" aria-label="Dismiss">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="1.9"
+                      stroke-linecap="round"/>
+              </svg>
+            </button>
+          </section>
         </section>
 
         <!-- ── The guard: the claim, and the evidence for it ─────── -->
@@ -284,7 +312,7 @@
             </div>
           </details>
 
-          <details class="disclosure">
+          <details class="disclosure" id="panel-activity">
             <summary>
               <span class="disclosure__label">Activity</span>
               <span class="badge badge--quiet" id="log-count">0</span>
