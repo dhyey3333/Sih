@@ -38,6 +38,14 @@ _IRREVERSIBLE = (
 
 _STOP_PHRASES = ("stop before", "don't submit", "do not submit", "without submitting")
 
+#: Tasks that ask to be *told* something rather than to have something done.
+#: Without this the form-filling path runs anyway and answers "Filled every field I
+#: could" to the question "what is on this page", which is worse than declining.
+_READ_ONLY_PHRASES = (
+    "describe", "what is on", "what's on", "summarise", "summarize", "summary",
+    "read this", "read the page", "tell me about", "explain this page", "what does this page",
+)
+
 
 def _is_editable(element: WireElement) -> bool:
     return element.role in {"textbox", "searchbox", "combobox"} and not element.disabled
@@ -66,9 +74,80 @@ def _already_typed(request: StepRequest, element_id: int) -> bool:
     )
 
 
+def _plural(n: int, one: str, many: str | None = None) -> str:
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def describe(request: StepRequest) -> str:
+    """A factual account of the screen, from the sanitized context alone.
+
+    Not a model's reading of the page — a count of what the pipeline found, which is
+    all this planner can honestly offer. It is still worth answering rather than
+    refusing: it demonstrates that the *sanitized* context carries enough structure
+    to be useful, which is the whole premise, and it names the redactions by type so
+    the user can see what was withheld from this very description.
+    """
+    fields = [e for e in request.elements if _is_editable(e)]
+    buttons = [e for e in request.elements if e.role == "button"]
+    empty = [e for e in fields if _is_empty(e)]
+    sensitive = [e for e in fields if e.sensitive]
+
+    parts = [f"{request.page.origin}{request.page.path}"]
+    if request.page.title:
+        parts[0] += f" — {request.page.title}"
+
+    if fields or buttons:
+        shape = []
+        if fields:
+            shape.append(_plural(len(fields), "input"))
+            if empty:
+                shape.append(f"{len(empty)} of them empty")
+        if buttons:
+            shape.append(_plural(len(buttons), "button"))
+        parts.append("The screen has " + ", ".join(shape) + ".")
+    else:
+        parts.append("No form controls are visible on this screen.")
+
+    if sensitive:
+        kinds = sorted({e.sensitive for e in sensitive if e.sensitive})
+        verb = "asks" if len(sensitive) == 1 else "ask"
+        parts.append(
+            f"{_plural(len(sensitive), 'field')} {verb} for personal data: {', '.join(kinds)}."
+        )
+
+    if request.redactions:
+        kinds = sorted({r.type for r in request.redactions})
+        verb = "was" if len(request.redactions) == 1 else "were"
+        parts.append(
+            f"{_plural(len(request.redactions), 'region')} {verb} redacted before this "
+            f"reached me: {', '.join(kinds)}. I cannot see any of those values."
+        )
+    else:
+        parts.append("Nothing on this screen needed redacting.")
+
+    named = [e.text for e in buttons if e.text][:4]
+    if named:
+        parts.append("Buttons: " + ", ".join(f"“{t}”" for t in named) + ".")
+
+    return " ".join(parts)
+
+
 def plan(request: StepRequest) -> StepResponse:
     """Decide the next action from the sanitized context alone."""
     available = set(request.profile_keys)
+
+    # 0. A question, not an instruction. Answer it instead of filling the form —
+    #    typing into someone's fields because they asked what the page says is the
+    #    wrong action, not merely an unhelpful one.
+    task = request.task.lower()
+    if any(phrase in task for phrase in _READ_ONLY_PHRASES):
+        return StepResponse(
+            action="done",
+            summary=describe(request),
+            reason="The task asks for a description, so nothing needed to be clicked or typed.",
+            confidence=0.9,
+            planner="rule-based",
+        )
 
     # 1. Fill any empty sensitive field we hold a profile value for.
     for element in request.elements:

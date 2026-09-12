@@ -175,3 +175,60 @@ class TestSchemaValidation:
 
 def response_text(body: dict) -> str:
     return copy.deepcopy(body).__str__()
+
+
+class TestReadOnlyTasks:
+    """A question must be answered, not acted on.
+
+    "Describe what is on this page" used to fall through to the form-filling path
+    and reply "Filled every field I could" — an answer to a different question, and
+    an action nobody asked for.
+    """
+
+    def test_a_describe_task_is_answered_not_filled(self, client):
+        body = client.post(
+            "/v1/step", json=sanitized_request(task="Describe what is on this page")
+        ).json()
+        assert body["action"] == "done"
+        assert "Filled every field" not in body["summary"]
+
+    def test_the_answer_is_about_the_actual_screen(self, client):
+        body = client.post(
+            "/v1/step", json=sanitized_request(task="Describe what is on this page")
+        ).json()
+        summary = body["summary"]
+        assert "demo.local/apply" in summary
+        # The fixture has 4 inputs, 1 button and one AADHAAR redaction.
+        assert "button" in summary
+        assert "AADHAAR" in summary
+        assert "cannot see" in summary
+
+    def test_it_says_so_when_nothing_was_redacted(self, client):
+        body = client.post(
+            "/v1/step",
+            json=sanitized_request(task="Summarise this page", redactions=[]),
+        ).json()
+        assert "needed redacting" in body["summary"]
+
+    def test_a_fill_task_still_fills(self, client):
+        """The read-only check must not swallow ordinary instructions."""
+        body = client.post(
+            "/v1/step", json=sanitized_request(task="Fill this form with my profile")
+        ).json()
+        assert body["action"] == "type"
+
+    def test_a_page_with_no_controls_is_described_honestly(self, client):
+        body = client.post(
+            "/v1/step", json=sanitized_request(task="What is on this page?", elements=[])
+        ).json()
+        assert body["action"] == "done"
+        assert "No form controls" in body["summary"]
+
+    def test_the_summary_agrees_with_itself_grammatically(self, client):
+        """It is read aloud in a demo; "4 fields asks" is not acceptable there."""
+        body = client.post(
+            "/v1/step", json=sanitized_request(task="Describe what is on this page")
+        ).json()
+        summary = body["summary"]
+        assert "fields asks" not in summary and "field ask " not in summary
+        assert "regions was" not in summary and "region were" not in summary

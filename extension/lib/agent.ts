@@ -281,11 +281,26 @@ export class Agent {
   }
 
   private async postStep(request: StepRequest): Promise<StepResponse> {
-    const response = await fetch(`${this.options.serverUrl.replace(/\/$/, '')}/v1/step`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    });
+    const base = this.options.serverUrl.replace(/\/$/, '');
+
+    let response: Response;
+    try {
+      response = await fetch(`${base}/v1/step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+    } catch (error) {
+      // `fetch` rejects with a bare "Failed to fetch" when nothing is listening,
+      // which tells the user nothing about what to do next. Every other failure in
+      // this file names its cause; this one has to as well, because "the planner is
+      // not running" is by far the most common way a fresh setup breaks.
+      throw new Error(
+        `Cannot reach the planner at ${base}. Start it with: ` +
+          `cd server && uv run uvicorn app.main:app --port 8000 — or press Analyze, ` +
+          `which needs no server at all. (${error instanceof Error ? error.message : error})`,
+      );
+    }
 
     if (response.status === 422) {
       const body = (await response.json()) as { detail?: string; incidents?: Array<{ type: string }> };
