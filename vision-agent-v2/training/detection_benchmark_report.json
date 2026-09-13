@@ -1,0 +1,56 @@
+{
+  "generated_at": "2026-09-10T06:07:55Z",
+  "model": "../extension/vendor/ui_detector.onnx",
+  "dataset": "../labeling/sample_dataset",
+  "iou_threshold": 0.5,
+  "n_images": 1,
+  "per_class": {
+    "button": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "precision": null,
+      "recall": 0.0
+    },
+    "input": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 5,
+      "precision": null,
+      "recall": 0.0
+    },
+    "link": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "precision": null,
+      "recall": null
+    },
+    "image": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "precision": null,
+      "recall": 0.0
+    }
+  },
+  "overall": {
+    "tp": 0,
+    "fp": 0,
+    "fn": 7,
+    "precision": null,
+    "recall": 0.0
+  },
+  "avg_inference_ms": 19.88066799999899,
+  "per_image": [
+    {
+      "image": "36a52dc081a1.png",
+      "n_gt": 7,
+      "n_pred": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 7,
+      "inference_ms": 19.9
+    }
+  ]
+}
