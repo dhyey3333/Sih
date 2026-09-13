@@ -1,9 +1,0 @@
-{
-  "name": "vision-agent-v2-devtools",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Dev-only dependencies for training/benchmark_redaction.mjs. NOT shipped with the extension - extension/vendor/ already contains everything the extension itself needs, fully local.",
-  "devDependencies": {
-    "tesseract.js": "^7.0.0"
-  }
-}
