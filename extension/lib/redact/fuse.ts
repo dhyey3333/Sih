@@ -11,6 +11,27 @@
 import type { Detection, Rect } from '../protocol';
 import { PII_PRIORITY } from '../protocol';
 
+/**
+ * Which detection names a merged box.
+ *
+ * A `GENERIC` box from the vision layer means "the detector saw something
+ * text-like it could not name" — the least specific claim anything in the pipeline
+ * makes. It still widens the redaction (the union keeps every pixel it saw covered),
+ * but it must not *name* the result. At its table priority it outranked EMAIL, PHONE,
+ * DOB, ADDRESS and NAME, so an email field the DOM had identified exactly went out
+ * as ⟦GENERIC_7⟧ instead of ⟦PROFILE.EMAIL⟧ — hiding from the server the one fact
+ * the token scheme exists to tell it.
+ *
+ * It ranks just above FACE, not at the bottom: a text box merged with a face must
+ * still be blocked, because a FACE result is pixelated and text is never pixelated.
+ * A DOM `GENERIC` ("voter ID", "salary") is a deliberate classification of a named
+ * field and keeps its table priority.
+ */
+function fusionRank(d: Detection): number {
+  if (d.type === 'GENERIC' && d.source === 'vision') return PII_PRIORITY.FACE + 0.5;
+  return PII_PRIORITY[d.type];
+}
+
 /** Grow a box slightly. Anti-aliased glyph edges bleed a pixel or two past the rect. */
 export function padRect(rect: Rect, pad: number, bounds?: { w: number; h: number }): Rect {
   let x = rect.x - pad;
@@ -89,7 +110,7 @@ export function fuseDetections(detections: Detection[], options: FuseOptions = {
   const working = detections
     .filter((d) => area(d.bbox) >= minArea)
     // Highest priority first, so a merged group inherits the right type and token.
-    .sort((a, b) => PII_PRIORITY[b.type] - PII_PRIORITY[a.type] || area(b.bbox) - area(a.bbox))
+    .sort((a, b) => fusionRank(b) - fusionRank(a) || area(b.bbox) - area(a.bbox))
     .map((d) => ({ ...d, bbox: { ...d.bbox } }));
 
   const merged: Detection[] = [];

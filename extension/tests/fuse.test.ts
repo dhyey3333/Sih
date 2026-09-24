@@ -125,3 +125,49 @@ describe('redactedAreaRatio', () => {
     expect(redactedAreaRatio(huge, { w: 100, h: 100 })).toBe(1);
   });
 });
+
+/**
+ * The retrained UI detector emits a `pii_text` box — GENERIC, "text-like, unnamed" —
+ * over most filled fields. At its table priority it used to name the merged box, so
+ * an email field went out as ⟦GENERIC_7⟧ instead of ⟦PROFILE.EMAIL⟧. Found by running
+ * the real pipeline on a real site (DemoQA) and on our own KYC page.
+ */
+describe('a vague vision box widens a redaction but never names it', () => {
+  const field = { x: 100, y: 100, w: 300, h: 30 };
+  const around = { x: 96, y: 97, w: 310, h: 36 };
+
+  it.each(['EMAIL', 'PHONE', 'NAME', 'ADDRESS', 'DOB', 'PINCODE'] as PiiType[])(
+    'keeps the DOM type and token of a %s field',
+    (type) => {
+      const typed = { ...det(type, field, 'dom-field'), token: `⟦PROFILE.${type}⟧` };
+      const [out] = fuseDetections([det('GENERIC', around, 'vision'), typed], { pad: 0 });
+      expect(out!.type).toBe(type);
+      expect(out!.token).toBe(`⟦PROFILE.${type}⟧`);
+    },
+  );
+
+  it('still grows the box to cover everything the detector saw', () => {
+    const [out] = fuseDetections(
+      [det('GENERIC', around, 'vision'), det('EMAIL', field, 'dom-field')],
+      { pad: 0 },
+    );
+    expect(containment(out!.bbox, around)).toBe(1);
+    expect(containment(out!.bbox, field)).toBe(1);
+  });
+
+  it('beats a face, so text merged with a face is blocked and never pixelated', () => {
+    const [out] = fuseDetections(
+      [det('FACE', field, 'vision'), det('GENERIC', around, 'vision')],
+      { pad: 0 },
+    );
+    expect(out!.type).toBe('GENERIC');
+  });
+
+  it('leaves a DOM GENERIC (a named "voter ID" field) at its own priority', () => {
+    const [out] = fuseDetections(
+      [det('EMAIL', field, 'dom-field'), det('GENERIC', around, 'dom-field')],
+      { pad: 0 },
+    );
+    expect(out!.type).toBe('GENERIC');
+  });
+});
