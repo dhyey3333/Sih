@@ -305,10 +305,31 @@ function collectText(
       bbox: block.bbox,
       spans: spans.map(({ start, end, type, value }) => ({ start, end, type, value })),
       context: context.slice(0, 500),
+      ...(pairedLabel(block.container) ? { label: pairedLabel(block.container) } : {}),
     });
   }
 
   return { findings, blocks };
+}
+
+/**
+ * Elements whose job is to name the one value that follows them. Not headings: a
+ * heading titles a section, and "Application SCH-…: Status: Approved" reads worse
+ * than the two lines it came from.
+ */
+const LABELISH = new Set(['DT', 'TH', 'LABEL', 'STRONG', 'B']);
+
+/**
+ * The label a value block sits beside — the `<dt>` before a `<dd>` — for reading the
+ * pair as one line. Only a value after a label: a `<dt>` after the previous `<dd>` is
+ * the start of the next pair, not a value, and joining it chained every row together.
+ */
+function pairedLabel(container: Element): string | undefined {
+  if (LABELISH.has(container.tagName)) return undefined;
+  const previous = container.previousElementSibling;
+  if (!previous || !LABELISH.has(previous.tagName)) return undefined;
+  const text = (previous.textContent ?? '').replace(/\s+/g, ' ').trim();
+  return text && text.length <= 80 ? text : undefined;
 }
 
 /**

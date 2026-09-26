@@ -52,9 +52,15 @@ export function buildVisibleText(
 
   const lines: string[] = [];
   let used = 0;
+  let previous = '';
 
   for (const block of blocks) {
     const covering = pixelOnly.filter((d) => covers(d.bbox, block.bbox));
+    // "Registered email" then "⟦PROFILE.EMAIL⟧" on the next line reads, to a small
+    // model, as a label with nothing after it — a 3B model answered with the label.
+    // A value whose label is the line just written joins it: "Registered email: …".
+    const labelled = block.label !== undefined && collapse(block.label) === previous && lines.length > 0;
+    previous = collapse(block.text);
     const line = clampAtWord(
       covering.length > 0
         ? [...new Set(covering.map((d) => d.token))].join(' ')
@@ -62,6 +68,18 @@ export function buildVisibleText(
       MAX_BLOCK_CHARS,
     );
     if (!line || line === lines.at(-1)) continue;
+    if (labelled && covering.length === 0) {
+      const label = lines.pop()!;
+      used -= label.length + 1;
+      const joined = `${label}${/[:：]$/.test(label) ? ' ' : ': '}${line}`;
+      if (used + joined.length + 1 > maxChars) {
+        lines.push('…');
+        break;
+      }
+      lines.push(joined);
+      used += joined.length + 1;
+      continue;
+    }
     if (used + line.length + 1 > maxChars) {
       lines.push('…');
       break;
@@ -119,4 +137,68 @@ function explains(finding: Rect, pixel: Rect): boolean {
   const h = Math.min(finding.y + finding.h, pixel.y + pixel.h) - Math.max(finding.y, pixel.y);
   if (w <= 0 || h <= 0) return false;
   return (w * h) / (pixel.w * pixel.h) >= 0.5;
+}
+
+/**
+ * Vague pixel boxes that the text under them contradicts.
+ *
+ * The detector's `pii_text` class (GENERIC) says "this looks like personal text", and
+ * on government portals it fires on deadlines — "Last date to apply: 31 October 2026"
+ * came back as a black box, and the question about it went unanswered. When the text
+ * layer has read those exact characters, found nothing, and they are only a date
+ * that has not happened yet, the box is wrong: a future date is nobody's date of
+ * birth. It is dropped from the image and the text alike, so the two still agree.
+ *
+ * Deliberately narrow. Past dates keep their box (one could be a birth date with its
+ * label out of view), and so does anything with a name, a number or a word in it.
+ */
+export function dismissFutureDateBoxes(
+  detections: Detection[],
+  blocks: VisibleTextBlock[],
+  today: Date = new Date(),
+): Detection[] {
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return detections.filter((d) => {
+    if (d.source !== 'vision' || d.type !== 'GENERIC') return true;
+    const under = blocks.filter((b) => covers(d.bbox, b.bbox));
+    if (under.length === 0) return true;
+    return !under.every((b) => {
+      if (b.spans.length > 0) return false;
+      const date = parseDate(collapse(b.text).replace(DATE_LEAD, ''));
+      return date !== null && date.getTime() > start;
+    });
+  });
+}
+
+/** Words that introduce a deadline without changing what it is. */
+const DATE_LEAD =
+  /^(?:(?:last|closing|due|end|expiry|expires?|valid|open|opens|closes)\s+(?:date|on|till|until|by)?\s*[:：-]?\s*|(?:until|till|by|before|on|from|up\s*to|upto)\s+)/i;
+
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september',
+  'october', 'november', 'december'];
+
+/** "31 October 2026", "October 31, 2026", "31/10/2026", "2026-10-31". Null for anything else. */
+export function parseDate(text: string): Date | null {
+  const t = text.trim().replace(/[.,]$/, '');
+  let m = /^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,9})\.?,?\s+(\d{4})$/i.exec(t);
+  if (m) return build(+m[3]!, monthOf(m[2]!), +m[1]!);
+  m = /^([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/i.exec(t);
+  if (m) return build(+m[3]!, monthOf(m[1]!), +m[2]!);
+  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(t); // day first, as India writes it
+  if (m) return build(+m[3]!, +m[2]! - 1, +m[1]!);
+  m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (m) return build(+m[1]!, +m[2]! - 1, +m[3]!);
+  return null;
+}
+
+/** A month name or its abbreviation ("Oct", "Sept"); -1 for any other word ("Mayor"). */
+function monthOf(word: string): number {
+  const w = word.toLowerCase() === 'sept' ? 'sep' : word.toLowerCase();
+  return w.length >= 3 ? MONTHS.findIndex((m) => m.startsWith(w)) : -1;
+}
+
+function build(year: number, month: number, day: number): Date | null {
+  if (month < 0 || month > 11 || day < 1) return null;
+  const d = new Date(year, month, day);
+  return d.getMonth() === month && d.getDate() === day ? d : null;
 }

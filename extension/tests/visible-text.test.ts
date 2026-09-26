@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Detection, VisibleTextBlock } from '../lib/protocol';
 import { guardPayload } from '../lib/pii/egress';
 import { Vault } from '../lib/pii/vault';
-import { buildVisibleText } from '../lib/pii/visible-text';
+import { buildVisibleText, dismissFutureDateBoxes, parseDate } from '../lib/pii/visible-text';
 import { FAKE } from './fixtures';
 
 let vault: Vault;
@@ -154,5 +154,63 @@ describe('buildVisibleText', () => {
     expect(out).toContain('⟦PROFILE.EMAIL⟧');
     const report = guardPayload({ visible_text: out }, { secrets: vault.secrets() });
     expect(report.incidents).toEqual([]);
+  });
+});
+
+describe('a label and its value read as one line', () => {
+  it('joins a value to the label written just before it', () => {
+    const text = FAKE.email;
+    const out = buildVisibleText(
+      [block('Registered email'), block(text, { label: 'Registered email', spans: [span(text, FAKE.email, 'EMAIL')] })],
+      [],
+      vault,
+    );
+    expect(out).toMatch(/^Registered email: ⟦EMAIL_\d+⟧$/);
+  });
+
+  it('leaves lines apart when the label is someone else\'s', () => {
+    expect(buildVisibleText([block('Next steps'), block('Approved', { label: 'Status' })], [], vault))
+      .toBe('Next steps\nApproved');
+  });
+});
+
+describe('dismissFutureDateBoxes — a deadline is nobody\'s date of birth', () => {
+  const today = new Date(2026, 8, 26);
+  const vague = detection({ bbox: { x: 150, y: 2, w: 120, h: 16 }, token: '⟦GENERIC_3⟧' });
+
+  it('drops a vague box over a future date the text layer found clean', () => {
+    expect(dismissFutureDateBoxes([vague], [block('31 October 2026')], today)).toEqual([]);
+    expect(dismissFutureDateBoxes([vague], [block('Until 15 November 2026')], today)).toEqual([]);
+    expect(dismissFutureDateBoxes([vague], [block('Last date: 31/10/2026')], today)).toEqual([]);
+  });
+
+  it('keeps it over a past date — that one could be a birth date', () => {
+    expect(dismissFutureDateBoxes([vague], [block('14 March 2001')], today)).toHaveLength(1);
+  });
+
+  it('keeps it over anything that is not only a date', () => {
+    expect(dismissFutureDateBoxes([vague], [block('Raghunath Kulkarni, 31 October 2026')], today)).toHaveLength(1);
+    expect(dismissFutureDateBoxes([vague], [block('Mayor 12 2030')], today)).toHaveLength(1);
+  });
+
+  it('keeps it where the text layer found something', () => {
+    const text = '31 October 2026';
+    expect(dismissFutureDateBoxes([vague], [block(text, { spans: [span(text, text, 'DOB')] })], today)).toHaveLength(1);
+  });
+
+  it('never touches a specific class, or anything but vision', () => {
+    const card = detection({ type: 'CARD', bbox: vague.bbox });
+    const ocr = detection({ source: 'ocr', bbox: vague.bbox });
+    expect(dismissFutureDateBoxes([card, ocr], [block('31 October 2026')], today)).toHaveLength(2);
+  });
+
+  it('parses the forms Indian portals use', () => {
+    expect(parseDate('31 October 2026')?.getMonth()).toBe(9);
+    expect(parseDate('October 31, 2026')?.getDate()).toBe(31);
+    expect(parseDate('1st Sept 2026')?.getMonth()).toBe(8);
+    expect(parseDate('31/10/2026')?.getMonth()).toBe(9); // day first
+    expect(parseDate('2026-10-31')?.getDate()).toBe(31);
+    expect(parseDate('31/02/2026')).toBeNull();
+    expect(parseDate('Approved')).toBeNull();
   });
 });

@@ -59,11 +59,15 @@ questions about the screen, and two prompt-injection pages.
 
 | Planner | Completed | Safe |
 |---|---|---|
-| Rule-based, no model | **17 / 19** | **19 / 19** |
+| Rule-based, no model | **19 / 19** | **19 / 19** |
 | Qwen2.5-VL 3B, open weights, local (the 6 model-dependent tasks) | 2 / 6 | **6 / 6** |
 
-The rule-based misses are named: a deadline the vision detector over-redacts, so the
-answer is withheld (D29), and a task phrased so that only a model can plan it.
+Two of those nineteen were misses until the last round of fixes, and what fixed them
+is general, not per-page: a vague pixel box over a *future* date that the text layer
+read cleanly is dropped — a deadline is nobody's date of birth (D29) — and "find X" is
+treated as a search when X is a topic rather than a control. Every answer to a
+question is checked by eye as well as by keyword: "Status: Approved", "Last date to
+apply: 31 October 2026", "Registered email: ⟦PROFILE.EMAIL⟧" filled in on the device.
 
 The 3B model answered "Approved" from the screen text, and answered the deadline
 question with the token for the withheld value — exactly the rule it was given. Where
@@ -147,7 +151,7 @@ an order id without giving up the precision column.
 |---|---|
 | Pixel recall | 78–100% per page; 100% on six of the ten |
 | **Leak test** | **0**, on all ten pages |
-| **On the wire, end to end** | 40 request bodies and 40 screenshots from the task benchmark: **0** profile values in either |
+| **On the wire, end to end** | 42 request bodies and 42 screenshots from the task benchmark: **0** profile values in either |
 
 The last row is checked from outside the extension (D34): the benchmark records what
 the panel actually posted and OCRs what it actually sent. It found one real leak, once
@@ -165,7 +169,7 @@ because the glyph alphabet is small and known. Only faces are pixelated.
 
 Measured per task in the benchmark, for the whole browser process tree (the browser
 itself included, so this is an upper bound on what the extension costs): median
-**1.3 CPU-seconds per task**, peak resident memory **≤ 1.3 GB**.
+**1.2 CPU-seconds per task**, peak resident memory **≤ 1.3 GB**.
 
 | Asset | Size |
 |---|---|
@@ -198,7 +202,7 @@ per frame against ~79 ms on WASM. The adapter is now inspected and declined.
 ### 5. End-to-end latency — 15%
 
 **Per task**, press-run to done, over the 19-task benchmark with the rule-based
-planner: median **2.7 s**, total 49 s for all nineteen. Several of those seconds are
+planner: median **2.5 s**, total 50 s for all nineteen. Several of those seconds are
 the agent deliberately waiting for the page to settle after each action.
 
 With the local 3B model on an 8 GB M1, a model step took **7 s** at best (text only,
@@ -278,8 +282,8 @@ from outside the extension.
 
 | Command | What it checks |
 |---|---|
-| `cd extension && npm test` | 460 unit tests — validators, heuristics, fusion, agent gates, panel markup |
-| `cd server && uv run pytest` | 148 tests, including the VLM path over a real socket and the live view |
+| `cd extension && npm test` | 468 unit tests — validators, heuristics, fusion, agent gates, panel markup |
+| `cd server && uv run pytest` | 151 tests, including the VLM path over a real socket and the live view |
 | `cd ml && uv run --group dev pytest` | 20 tests over the data engine |
 | `uv run python -m eval.run_all` | Every detection and redaction number, in a real browser |
 | `uv run python -m eval.run_tasks` | The 19-task agent benchmark, with the wire check; `--vlm ollama` for a local model, `--vlm mock-injected` for the injection stress test |
@@ -297,8 +301,9 @@ from outside the extension.
 - The only real model measured is **Qwen2.5-VL 3B on an 8 GB laptop**: 7 s a step
   with text, over a minute with the screenshot. A larger model on a GPU is three
   environment variables away and has not been measured.
-- The vision detector's vague "personal text" class fires on some dates; the text
-  layer does not override it, so one benchmark question goes unanswered (D29).
+- The vision detector's vague "personal text" class fires on some dates. A future
+  date the text layer read cleanly is let through; a past date keeps its box, so a
+  question about a past date on such a page can go unanswered (D29).
 - Names belonging to someone other than the user are not detected — there is no NER
   model, by choice (D4).
 - The holdout's 0.784 is the only truly blind number it will ever produce. Everything

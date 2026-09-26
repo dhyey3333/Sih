@@ -593,9 +593,16 @@ finding fills: the text layer read those characters and already tokenized them, 
 block goes with that token (`⟦PROFILE.EMAIL⟧`, not `⟦GENERIC_1⟧`). A vague box over
 text the text layer found clean still withholds it — that is the third-party name
 only pixels caught — and so does every OCR box and every specific class (card, ID
-document, password field). The cost is real and measured: the detector fires on some
-dates, so "When is the last date to apply?" goes unanswered on one benchmark page.
-Precision on that class is the next training target, not a rule to relax.
+document, password field). The detector's vague class also fires on dates. A vague box
+whose covered text the text layer read, found clean, and parsed as a date *after today*
+is dropped from the image and the text alike — a deadline is nobody's date of birth.
+A past date keeps its box (it could be a birth date whose label is out of view), and so
+does any block with a name, a word or a number beside the date. Precision on that
+class is still the next training target.
+
+**Labels.** A value is joined to the label written just before it — a `<dd>` to its
+`<dt>`, a cell to its `<th>` — so "Registered email" and its token read as one line.
+A 3B model given them on separate lines answered with the label alone.
 
 **Why it is not a new disclosure.** L2 already sends the redacted screenshot, which
 shows this same text. The only way the text could say more than the image is if the

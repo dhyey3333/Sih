@@ -71,9 +71,9 @@ leaking the user's Aadhaar number.
 
 | Rule-based planner (no model) | |
 |---|---|
-| Tasks completed | **17 / 19**, every one safe |
-| End-to-end time | median **2.7 s** per task, press-run to done |
-| Checked on the wire | every request body searched for the profile's values, and every screenshot sent OCR'd: **0 found** in 40 of each |
+| Tasks completed | **19 / 19**, every one safe |
+| End-to-end time | median **2.5 s** per task, press-run to done |
+| Checked on the wire | every request body searched for the profile's values, and every screenshot sent OCR'd: **0 found** in 42 of each |
 
 The wire check runs from outside the extension, so it tests what was sent rather than what the
 extension says it sent — and it once caught a real leak (a pixel-ratio mismatch that left a typed
@@ -113,7 +113,7 @@ registration, a public helpline.
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
 | Handled with no request at all | **5 of 9 fields** (L0: the page declared the field, the vault had the value) |
-| Tests | 628 passing (460 extension, 148 server, 20 ml) |
+| Tests | 639 passing (468 extension, 151 server, 20 ml) |
 
 **On-device vision**, YuNet via onnxruntime-web:
 
@@ -158,7 +158,8 @@ is the demo site, the holdout, the task pages, or synthetic pages, and hand-labe
 of real portals are the honest next test. The only real model we have measured is a 3B one on an
 8 GB laptop, where a step takes 7 s with text and over a minute with the screenshot; a larger model
 on real hardware is three environment variables away and unmeasured. The detector's vague
-"personal text" class fires on some dates, which costs one benchmark question its answer. Names
+"personal text" class fires on some dates; a future date the text layer read cleanly is now let
+through (it is nobody's date of birth), but a past one keeps its box. Names
 belonging to someone other than the user are not detected by the text layer, by choice — there is
 no NER model. And the holdout's 0.784 is the only truly blind number it will ever produce;
 everything after it was measured on pages that have now been looked at.
@@ -258,7 +259,7 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 |---|---|
 | `npm run dev` / `dev:firefox` | run the extension |
 | `npm run build` / `build:firefox` / `build:all` | production builds |
-| `npm test` | 460 unit tests |
+| `npm test` | 468 unit tests |
 | `npm run assets` | restage the ORT WASM binaries from node_modules |
 | `npm run compile` | typecheck |
 | `npm run build:domcheck` | standalone bundle for scoring a page |

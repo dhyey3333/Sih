@@ -41,11 +41,11 @@ first could not have caught the bug below.
 
 | Rule-based planner, 19 tasks | |
 |---|---|
-| Passed | **17 / 19**, all safe |
-| Wire check | 40 request bodies, 40 screenshots OCR'd, **0 profile values** in either |
-| End-to-end time | median **2.7 s** per task, press-run to done |
-| CPU | median 1.3 s per task |
-| Misses | a deadline the vision detector over-redacts (D29); a task phrased to need a model |
+| Passed | **19 / 19**, all safe |
+| Wire check | 42 request bodies, 42 screenshots OCR'd, **0 profile values** in either |
+| End-to-end time | median **2.5 s** per task, press-run to done |
+| CPU | median 1.2 s per task |
+| Last two fixed | a future-dated deadline under a vague pixel box (D29); "find X" as a search |
 
 ### The bug the model found
 
@@ -159,7 +159,7 @@ planner did not already hold, and shows a rejected payload as its incident alone
 
 ### Numbers
 
-460 extension tests, 148 server tests, `npm run compile` clean.
+468 extension tests, 151 server tests, `npm run compile` clean.
 
 ---
 

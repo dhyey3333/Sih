@@ -26,7 +26,7 @@ import type {
 import { Stopwatch } from './metrics';
 import { describeIncidents, guardPayload, type EgressReport } from './pii/egress';
 import { clampLabel, sanitizeText, sanitizeUrl } from './pii/sanitize';
-import { buildVisibleText } from './pii/visible-text';
+import { buildVisibleText, dismissFutureDateBoxes } from './pii/visible-text';
 import type { Vault } from './pii/vault';
 import { fuseDetections, redactedAreaRatio } from './redact/fuse';
 import type { VisionStats } from './vision';
@@ -114,7 +114,9 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     ...detectionsFromFields(snapshot.elements, vault),
     ...detectionsFromText(snapshot, vault),
     ...(input.coverOpaqueFrames === false ? [] : detectionsFromOpaqueFrames(snapshot)),
-    ...(input.visionDetections ?? []),
+    // A vague pixel box over a deadline the text layer read and found clean is dropped
+    // here, before fusion, so the image and the screen text agree (visible-text.ts).
+    ...dismissFutureDateBoxes(input.visionDetections ?? [], snapshot.visibleText ?? []),
   ];
   watch.end('detect');
 

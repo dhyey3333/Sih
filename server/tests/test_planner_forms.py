@@ -264,3 +264,17 @@ class TestAnsweringAboutYourOwnData:
 
     def test_a_complete_pair_is_not_extended(self):
         assert answer_from_text("What is the status?", "Status: Approved\nNext steps") == "Status: Approved"
+
+
+class TestFindIsASearchWhenItNamesAThing:
+    def test_find_a_topic_is_a_search(self):
+        assert search_query("Find scholarships for engineering students") == "scholarships for engineering students"
+        assert search_query("look for merit scholarships") == "merit scholarships"
+
+    def test_find_a_control_is_not(self):
+        assert search_query("Find the login button") is None
+        assert search_query("find the sign-up link") is None
+
+    def test_a_search_for_a_login_topic_still_is_one(self):
+        # "search for" is unambiguous; only "find" gets the control check.
+        assert search_query("search for login problems") == "login problems"

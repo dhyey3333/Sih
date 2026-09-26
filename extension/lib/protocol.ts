@@ -176,6 +176,8 @@ export interface VisibleTextBlock {
   spans: Array<{ start: number; end: number; type: PiiType; value: string }>;
   /** The words around the block that context-dependent rules need ("OTP", "Date of birth"). */
   context: string;
+  /** The label beside it — the `<dt>` before a `<dd>` — so the two can be read as one line. */
+  label?: string;
 }
 
 /** An <img>/<canvas>/<video> the DOM can't read into: handed to the vision layer. */

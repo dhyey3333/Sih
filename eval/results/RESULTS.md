@@ -74,7 +74,7 @@ with OCR. `Recovered` counts ground-truth values still legible afterwards.
 | tesseract core wasm | 2.7 MB |
 | tesseract lang | 1.9 MB |
 | packed chrome | 45.8 MB |
-| packed firefox | 32.2 MB |
+| packed firefox | 32.3 MB |
 
 ### Face detector, by backend
 
@@ -85,8 +85,8 @@ with OCR. `Recovered` counts ground-truth values still legible afterwards.
 
 | Requested | Actually used | Session load | Inference p50 | Min | Max | First run |
 |---|---|---|---|---|---|---|
-| webgpu | wasm *(fell back)* | 222 ms | 38 ms | 35 ms | 42 ms | 45 ms |
-| wasm | wasm | 20 ms | 35 ms | 33 ms | 46 ms | 39 ms |
+| webgpu | wasm *(fell back)* | 98 ms | 36 ms | 36 ms | 39 ms | 39 ms |
+| wasm | wasm | 12 ms | 34 ms | 32 ms | 35 ms | 35 ms |
 
 Fallback reason: `software WebGPU adapter (google swiftshader); WASM is faster`.
 
@@ -101,7 +101,7 @@ not changed, so OCR comes from cache — which is what a multi-step task actuall
 
 | Page | DOM snapshot | Detect + fuse | Vision | OCR | **Cold** | **Warm** |
 |---|---|---|---|---|---|---|
-| `kyc.html` | 7.6 ms | 0.5 ms | 106.8 ms | 440.6 ms | **555.5 ms** | **58.7 ms** |
-| `profile.html` | 1.5 ms | 0.3 ms | 48.6 ms | 164.2 ms | **214.6 ms** | **47.8 ms** |
-| `bank.html` | 2.9 ms | 1.3 ms | 47.1 ms | 0 ms | **51.3 ms** | **61.7 ms** |
-| `apply.html` | 2.7 ms | 0.1 ms | 51.4 ms | 0 ms | **54.2 ms** | **52.5 ms** |
+| `kyc.html` | 15.5 ms | 0.5 ms | 87.7 ms | 362.1 ms | **465.8 ms** | **51 ms** |
+| `profile.html` | 1.1 ms | 0.2 ms | 39.2 ms | 147.3 ms | **187.8 ms** | **39.3 ms** |
+| `bank.html` | 1.5 ms | 0.2 ms | 44.8 ms | 0 ms | **46.5 ms** | **40.9 ms** |
+| `apply.html` | 1.7 ms | 0 ms | 41.7 ms | 0 ms | **43.4 ms** | **38.9 ms** |

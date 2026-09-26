@@ -261,7 +261,14 @@ def _is_label(line: str, words: set[str]) -> bool:
 
 
 _SEARCH_TASK = re.compile(
-    r"^\s*(?:please\s+)?(?:search|look\s+up)\s+(?:for\s+|about\s+)?(.+?)\s*[.!]?\s*$", re.IGNORECASE
+    r"^\s*(?:please\s+)?(?:search|look\s+up|look\s+for|find)\s+(?:for\s+|about\s+)?(.+?)\s*[.!]?\s*$", re.IGNORECASE
+)
+#: "Find the login button" is about the page, not a query. "find" is ambiguous in a way
+#: "search for" is not — which is also why the on-device planner leaves it alone.
+_A_CONTROL = re.compile(
+    r"\b(button|link|field|box|menu|tab|option|form|section|icon|checkbox|dropdown|page|"
+    r"login|log[\s-]?in|sign[\s-]?in|sign[\s-]?up|submit)\b",
+    re.IGNORECASE,
 )
 _SEARCH_LABEL = re.compile(r"search|खोज", re.IGNORECASE)
 
@@ -273,6 +280,8 @@ def search_query(task: str) -> str | None:
         return None
     query = m.group(1).strip().strip("\"'“”‘’").strip()
     if not query or re.search(r"\b(and|then)\b|,", query, re.IGNORECASE):
+        return None
+    if re.match(r"^\s*(find|look\s+for)\b", task, re.IGNORECASE) and _A_CONTROL.search(query):
         return None
     return query
 
