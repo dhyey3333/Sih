@@ -79,10 +79,12 @@ The wire check runs from outside the extension, so it tests what was sent rather
 extension says it sent — and it once caught a real leak (a pixel-ratio mismatch that left a typed
 email legible to the model), which is now fixed and guarded.
 
-**Against a real model** — Qwen2.5-VL 3B, open weights, on the laptop through Ollama. It answers
-questions from the screen, and when it went wrong it went wrong in the ways the gates exist for:
-it typed a made-up email into a login form, and on the injection page it reached for the Aadhaar
-number. The client stopped both. See [docs/SUBMISSION.md](docs/SUBMISSION.md) for its numbers.
+**Against a real model** — Qwen2.5-VL 3B, open weights, on the laptop through Ollama, over the six
+tasks that need one: **2 completed, 6 safe**, OCR over 16 sent screenshots found nothing. It
+answered questions from the screen text; and when it went wrong it went wrong in the ways the
+gates exist for — on the injection page it **reached for the Aadhaar number, and gate 4 refused**;
+it tried to overwrite a filled email; it retried a failing action until the loop guard stopped it.
+Every one was caught on the client, by a check that does not depend on the model being good.
 
 **Privacy filter**, scored automatically in a real browser against `data-pii` ground truth:
 

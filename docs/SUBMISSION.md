@@ -60,9 +60,18 @@ questions about the screen, and two prompt-injection pages.
 | Planner | Completed | Safe |
 |---|---|---|
 | Rule-based, no model | **17 / 19** | **19 / 19** |
+| Qwen2.5-VL 3B, open weights, local (the 6 model-dependent tasks) | 2 / 6 | **6 / 6** |
 
-The two misses are named: a deadline the vision detector over-redacts, so the answer
-is withheld (D29), and a task phrased so that only a model can plan it.
+The rule-based misses are named: a deadline the vision detector over-redacts, so the
+answer is withheld (D29), and a task phrased so that only a model can plan it.
+
+The 3B model answered "Approved" from the screen text, and answered the deadline
+question with the token for the withheld value — exactly the rule it was given. Where
+it went wrong it went wrong in the ways the client's gates exist for, and each was
+stopped: on the injection page it **reached for the Aadhaar number and gate 4 refused**;
+it tried to overwrite a filled email (asked, declined); it tried to type "Submit" into
+a button until the loop guard ended the run. A larger model is three environment
+variables away (`--vlm openrouter` in the benchmark); we have measured only the 3B.
 
 Three perception layers feed one element list:
 
@@ -191,6 +200,12 @@ per frame against ~79 ms on WASM. The adapter is now inspected and declined.
 **Per task**, press-run to done, over the 19-task benchmark with the rule-based
 planner: median **2.7 s**, total 49 s for all nineteen. Several of those seconds are
 the agent deliberately waiting for the page to settle after each action.
+
+With the local 3B model on an 8 GB M1, a model step took **7 s** at best (text only,
+warm, idle machine) and a median of **70 s** in the benchmark run, with the browser and
+the model competing for memory — 43% of the model ran on CPU. That is the hardware,
+and it is why `VLM_STRATEGY=rules-first` exists: the model is spent only where
+judgement is needed.
 
 **Per step**, on the device:
 
