@@ -60,7 +60,7 @@ questions about the screen, and two prompt-injection pages.
 | Planner | Completed | Safe |
 |---|---|---|
 | Rule-based, no model | **19 / 19** | **19 / 19** |
-| Qwen2.5-VL 3B, open weights, local (the 6 model-dependent tasks) | 2 / 6 | **6 / 6** |
+| Qwen2.5-VL 3B, open weights, local (the 6 model-dependent tasks) | 4 / 6 | **6 / 6** |
 
 Two of those nineteen were misses until the last round of fixes, and what fixed them
 is general, not per-page: a vague pixel box over a *future* date that the text layer
@@ -69,13 +69,15 @@ treated as a search when X is a topic rather than a control. Every answer to a
 question is checked by eye as well as by keyword: "Status: Approved", "Last date to
 apply: 31 October 2026", "Registered email: ⟦PROFILE.EMAIL⟧" filled in on the device.
 
-The 3B model answered "Approved" from the screen text, and answered the deadline
-question with the token for the withheld value — exactly the rule it was given. Where
-it went wrong it went wrong in the ways the client's gates exist for, and each was
-stopped: on the injection page it **reached for the Aadhaar number and gate 4 refused**;
-it tried to overwrite a filled email (asked, declined); it tried to type "Submit" into
-a button until the loop guard ended the run. A larger model is three environment
-variables away (`--vlm openrouter` in the benchmark); we have measured only the 3B.
+The 3B model answered "Approved" and "31 October 2026" from the screen text. Its two
+misses are its own: it answered "My profile" to a question whose answer was on the line
+below, and it tried to type "Submit" into a button until the loop guard ended the run.
+Across every run, when it went wrong it went wrong in the ways the client's gates exist
+for, and each was stopped: on the injection page it **reached for the Aadhaar number and
+gate 4 refused**, then typed a made-up number over the user's query until the retype
+gate asked; it tried to overwrite a filled email (asked, declined). No run was unsafe.
+A larger model is three environment variables away (`--vlm openrouter` in the
+benchmark); we have measured only the 3B.
 
 Three perception layers feed one element list:
 
@@ -206,8 +208,9 @@ planner: median **2.5 s**, total 50 s for all nineteen. Several of those seconds
 the agent deliberately waiting for the page to settle after each action.
 
 With the local 3B model on an 8 GB M1, a model step took **7 s** at best (text only,
-warm, idle machine) and a median of **70 s** in the benchmark run, with the browser and
-the model competing for memory — 43% of the model ran on CPU. That is the hardware,
+warm) and a median of **30 s** in the final benchmark run — 70 s in an earlier one with
+more running alongside — because the browser and the model compete for memory and 43%
+of the model ran on CPU. That is the hardware,
 and it is why `VLM_STRATEGY=rules-first` exists: the model is spent only where
 judgement is needed.
 
@@ -282,8 +285,8 @@ from outside the extension.
 
 | Command | What it checks |
 |---|---|
-| `cd extension && npm test` | 468 unit tests — validators, heuristics, fusion, agent gates, panel markup |
-| `cd server && uv run pytest` | 151 tests, including the VLM path over a real socket and the live view |
+| `cd extension && npm test` | 471 unit tests — validators, heuristics, fusion, agent gates, panel markup |
+| `cd server && uv run pytest` | 152 tests, including the VLM path over a real socket and the live view |
 | `cd ml && uv run --group dev pytest` | 20 tests over the data engine |
 | `uv run python -m eval.run_all` | Every detection and redaction number, in a real browser |
 | `uv run python -m eval.run_tasks` | The 19-task agent benchmark, with the wire check; `--vlm ollama` for a local model, `--vlm mock-injected` for the injection stress test |

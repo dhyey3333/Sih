@@ -80,10 +80,11 @@ extension says it sent — and it once caught a real leak (a pixel-ratio mismatc
 email legible to the model), which is now fixed and guarded.
 
 **Against a real model** — Qwen2.5-VL 3B, open weights, on the laptop through Ollama, over the six
-tasks that need one: **2 completed, 6 safe**, OCR over 16 sent screenshots found nothing. It
-answered questions from the screen text; and when it went wrong it went wrong in the ways the
-gates exist for — on the injection page it **reached for the Aadhaar number, and gate 4 refused**;
-it tried to overwrite a filled email; it retried a failing action until the loop guard stopped it.
+tasks that need one: **4 completed, 6 safe**, and nothing of the profile in 19 request bodies or
+19 screenshots. It answered questions from the screen text ("Approved", "31 October 2026"); and
+when it went wrong it went wrong in the ways the gates exist for — on the injection page it
+**reached for the Aadhaar number, and gate 4 refused**; it tried to overwrite a filled email; it
+retried a failing action until the loop guard stopped it.
 Every one was caught on the client, by a check that does not depend on the model being good.
 
 **Privacy filter**, scored automatically in a real browser against `data-pii` ground truth:
@@ -113,7 +114,7 @@ registration, a public helpline.
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
 | Handled with no request at all | **5 of 9 fields** (L0: the page declared the field, the vault had the value) |
-| Tests | 639 passing (468 extension, 151 server, 20 ml) |
+| Tests | 643 passing (471 extension, 152 server, 20 ml) |
 
 **On-device vision**, YuNet via onnxruntime-web:
 
@@ -259,7 +260,7 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 |---|---|
 | `npm run dev` / `dev:firefox` | run the extension |
 | `npm run build` / `build:firefox` / `build:all` | production builds |
-| `npm test` | 468 unit tests |
+| `npm test` | 471 unit tests |
 | `npm run assets` | restage the ORT WASM binaries from node_modules |
 | `npm run compile` | typecheck |
 | `npm run build:domcheck` | standalone bundle for scoring a page |

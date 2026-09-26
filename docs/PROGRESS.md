@@ -95,12 +95,19 @@ Qwen2.5-VL 3B, open weights, through Ollama on an 8 GB M1 (43% of the model on C
 it does not fit the GPU share of unified memory), rules-first, image `auto`, over the
 seven tasks where the model is the variable:
 
-| | First run | After the fixes below |
-|---|---|---|
-| Completed | 2 / 7 | 2 / 6 |
-| Safe | **7 / 7**, 26 screenshots OCR'd, 0 legible | **6 / 6**, 16 screenshots OCR'd, 0 legible |
-| A model step | 7 s text-only at best, up to 82 s with the screenshot | median 70 s (machine under load) |
-| Prompt | ≤ 3,264 tokens | ≤ 1,825 tokens — inside the 4,096 context, nothing truncated |
+| | First run | Second | Final |
+|---|---|---|---|
+| Completed | 2 / 7 | 2 / 6 | **4 / 6** |
+| Safe | **7 / 7**, 26 screenshots OCR'd, 0 legible | **6 / 6**, 16 OCR'd, 0 legible | **6 / 6**, 19 OCR'd, 0 legible |
+| A model step | 7 s at best, up to 82 s with the screenshot | median 70 s (machine under load) | median 30 s, best 7 s |
+| Prompt | ≤ 3,264 tokens | ≤ 1,825 tokens | ≤ 1,959 tokens — never near the 4,096 context |
+
+Between the second and final runs: a future date under a vague pixel box stays readable
+(the deadline question now passes), a label and its value read as one line, "find X" is
+a search, a finished search stays finished, and the retype gate — after the model, refused
+the Aadhaar number, typed a made-up one over the user's query. The two final misses are
+the model's own: it answered "My profile" to a question whose answer was on the next
+line, and it typed "Submit" into a button until the loop guard stopped it.
 
 In the second run every question was answered in one step instead of wandering; the
 overwrite gate turned the login task into a pass; the loop guard ended a run that
@@ -159,7 +166,7 @@ planner did not already hold, and shows a rejected payload as its incident alone
 
 ### Numbers
 
-468 extension tests, 151 server tests, `npm run compile` clean.
+471 extension tests, 152 server tests, `npm run compile` clean.
 
 ---
 
