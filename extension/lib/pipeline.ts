@@ -105,6 +105,8 @@ export interface PipelineOutput {
 export function runPipeline(input: PipelineInput): PipelineOutput {
   const { snapshot, vault } = input;
   const watch = new Stopwatch();
+  // Values tokenized from here on are recorded as seen on this site (type-gate.ts).
+  vault.setPage(sanitizeUrl(snapshot.url).origin);
 
   /* 1. Detect ------------------------------------------------------- */
   watch.start('detect');
@@ -188,7 +190,14 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     elements,
     redactions,
     profile_keys: vault.profileKeys(),
-    history: input.history,
+    // Sanitized now, not only when recorded: a literal the planner typed becomes a known
+    // value once this page's fields are tokenized above, and history recorded before
+    // that would otherwise carry it raw — which the egress guard then blocks.
+    history: input.history.map((h) => ({
+      ...h,
+      ...(h.text ? { text: sanitizeText(h.text, vault).text } : {}),
+      ...(h.error ? { error: sanitizeText(h.error, vault).text } : {}),
+    })),
     ...(visibleText ? { visible_text: visibleText } : {}),
   };
 

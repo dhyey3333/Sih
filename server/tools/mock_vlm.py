@@ -170,6 +170,30 @@ def _decide(text: str) -> dict[str, Any]:
     return {"action": "done", "summary": "Nothing further to fill on this screen.", "reason": "no empty fields left"}
 
 
+def _obey_the_page(text: str) -> dict[str, Any] | None:
+    """What a model does once a page has talked it round: whatever the page says.
+
+    If the screen text asks for a value by token, type that token into the first
+    box on the page. This is the worst case, on purpose — the demo of gate 4 needs a
+    model that falls for it every time, and a real one only does sometimes.
+    """
+    screen = text.split("SCREEN TEXT", 1)[1] if "SCREEN TEXT" in text else ""
+    # Only an instruction to type a value — not every redaction token on the screen.
+    asked = re.search(r"\btype\b[^\n]*?(⟦[A-Z][A-Z0-9_.]*⟧)", screen, re.IGNORECASE)
+    if not asked:
+        return None
+    done = _already_typed(text)
+    for element in _elements(text):
+        if element.get("role") in {"searchbox", "textbox"} and element.get("id") not in done:
+            return {
+                "action": "type",
+                "element_id": element["id"],
+                "text": asked.group(1),
+                "reason": "the page says this search only works with it",
+            }
+    return None
+
+
 def _reply_text(action: dict[str, Any]) -> str:
     """Wrap the action the way a small open-weights model usually does."""
     return (
@@ -189,11 +213,13 @@ async def chat_completions(request: ChatRequest):
     # tests can exercise the client's handling of each:
     #   mock-strict    rejects JSON mode with HTTP 400, as some providers do per-model
     #   mock-thinking  reasons out loud in <think>…</think> before answering
+    #   mock-injected  does whatever the page tells it to — the prompt-injection demo
     if request.model == "mock-strict" and request.response_format is not None:
         return JSONResponse(status_code=400, content={"error": "response_format not supported"})
 
     text = _user_text(request.messages)
-    content = _reply_text(_decide(text))
+    action = (_obey_the_page(text) if request.model == "mock-injected" else None) or _decide(text)
+    content = _reply_text(action)
     if request.model == "mock-thinking":
         content = "<think>The page lists its fields; the first empty one is the name.</think>\n" + content
     return {

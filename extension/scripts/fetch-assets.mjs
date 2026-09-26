@@ -23,9 +23,9 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
  * Two ORT binaries, because the browsers genuinely differ.
  *
  * `.jsep` carries the WebGPU execution provider as well as the plain WASM one, in
- * a single 27 MB file. The plain build is 13 MB and has no WebGPU at all. Firefox
- * has no WebGPU today, so shipping it the larger binary is 14 MB that can never
- * execute — `wxt.config.ts` picks one per target and drops the other from the
+ * a single 27 MB file. The plain build is 13 MB and has no WebGPU at all. Our
+ * Firefox build is WASM-only (it runs on every Firefox; see wxt.config.ts), so the
+ * larger binary would be 14 MB it never executes — `wxt.config.ts` picks one per target and drops the other from the
  * output. Both are staged here; neither is committed.
  */
 const RUNTIME_FILES = [

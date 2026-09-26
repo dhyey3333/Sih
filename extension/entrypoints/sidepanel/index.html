@@ -340,9 +340,9 @@
                 <span>Planner server</span>
                 <input id="server-url" type="text" value="http://localhost:8000" autocomplete="off" />
               </label>
-              <label class="setting">
-                <span>Access token <em class="fineprint">only if the server sets PLANNER_TOKEN</em></span>
-                <input id="server-token" type="password" autocomplete="off" spellcheck="false" placeholder="none" />
+              <label class="setting" title="Only needed when the planner is started with PLANNER_TOKEN">
+                <span>Access token</span>
+                <input id="server-token" type="password" autocomplete="off" spellcheck="false" placeholder="optional" />
               </label>
               <button id="check-server" class="btn btn--soft btn--wide">Test connection</button>
               <p id="server-status" class="fineprint">Not checked.</p>

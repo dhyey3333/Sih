@@ -107,6 +107,10 @@ VLM_PRESETS = {
     "ollama": {"VLM_BASE_URL": "http://localhost:11434/v1", "VLM_MODEL": "qwen2.5vl:3b"},
     "openrouter": {"VLM_BASE_URL": "https://openrouter.ai/api/v1",
                    "VLM_MODEL": "qwen/qwen2.5-vl-72b-instruct"},
+    # Not a model: server/tools/mock_vlm.py playing one that obeys every page. The
+    # worst case for prompt injection, deterministic, no GPU — so "the gate holds"
+    # is a check anyone can rerun rather than a story about one lucky run.
+    "mock-injected": {"VLM_MODEL": "mock-injected"},
 }
 
 
@@ -237,24 +241,25 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def start_server(env_extra: dict[str, str]) -> tuple[subprocess.Popen, str]:
+def start_server(env_extra: dict[str, str], app: str = "app.main:app",
+                 health: str = "/health") -> tuple[subprocess.Popen, str]:
     port = free_port()
     env = {k: val for k, val in os.environ.items() if not k.startswith("VLM_")}
     env.update(env_extra)
     proc = subprocess.Popen(
-        ["uv", "run", "uvicorn", "app.main:app", "--port", str(port), "--log-level", "warning"],
+        ["uv", "run", "uvicorn", app, "--port", str(port), "--log-level", "warning"],
         cwd=ROOT / "server", env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     url = f"http://127.0.0.1:{port}"
     import urllib.request
     for _ in range(120):
         try:
-            with urllib.request.urlopen(f"{url}/health", timeout=1) as r:
+            with urllib.request.urlopen(f"{url}{health}", timeout=1) as r:
                 return proc, url if r.status == 200 else url
         except Exception:
             time.sleep(0.25)
     proc.kill()
-    raise SystemExit("planner server did not start")
+    raise SystemExit(f"{app} did not start")
 
 
 # --------------------------------------------------------------------------- #
@@ -447,6 +452,31 @@ def run_task(panel, target, base: str, task: Task, timeout_s: float, bodies: lis
     }
 
 
+def model_steps(replies: list) -> dict:
+    """Per-step numbers from the planner's own replies: which steps a model decided,
+    how long its inference took, how long the prompt was, and whether it saw the image."""
+    vlm_ms, tokens, images = [], [], 0
+    for res in replies:
+        try:
+            body = res.json()
+        except Exception:
+            continue
+        if body.get("planner") != "vlm":
+            continue
+        t = body.get("timings") or {}
+        if "inference" in t:
+            vlm_ms.append(t["inference"])
+        if "prompt_tokens" in t:
+            tokens.append(t["prompt_tokens"])
+        images += int(bool(t.get("image_sent")))
+    return {
+        "model_steps": len(vlm_ms),
+        "model_step_s_median": round(statistics.median(vlm_ms) / 1000, 1) if vlm_ms else None,
+        "prompt_tokens_max": int(max(tokens)) if tokens else None,
+        "model_steps_with_image": images,
+    }
+
+
 def _image_of(body: str) -> str | None:
     try:
         return (json.loads(body).get("screen") or {}).get("image_jpeg_b64")
@@ -529,6 +559,10 @@ def main() -> None:
 
     tasks = [t for t in TASKS if not args.only or t.id in args.only]
     cold_load_s = warm_local_model(env) if args.vlm == "ollama" else None
+    stub = None
+    if args.vlm == "mock-injected":
+        stub, stub_url = start_server({}, app="tools.mock_vlm:app", health="/v1/models")
+        env["VLM_BASE_URL"] = f"{stub_url}/v1"
     server, server_url = start_server(env)
     results: list[dict] = []
     image_leaks: int | None = None
@@ -550,8 +584,11 @@ def main() -> None:
             # the wire itself, seen from outside the extension — not the extension's
             # own account of what it sent.
             bodies: list[str] = []
+            replies: list = []
             panel.on("request", lambda req: bodies.append(req.post_data or "")
                      if req.url.startswith(server_url) and req.method == "POST" else None)
+            panel.on("response", lambda res: replies.append(res)
+                     if res.url.startswith(server_url + "/v1/step") else None)
             wait_until(panel, "document.querySelectorAll('#log li').length > 0", 15)
             panel.evaluate("document.getElementById('profile-demo').click()")
             panel.evaluate(f"document.getElementById('server-url').value = {json.dumps(server_url)}")
@@ -565,7 +602,9 @@ def main() -> None:
             print(f"planner: {label}")
             for t in tasks:
                 try:
+                    replies.clear()
                     r = run_task(panel, target, base, t, args.timeout, bodies)
+                    r.update(model_steps(replies))
                 except Exception as exc:  # one broken task must not lose the rest of the table
                     try:
                         safe = bool(target.evaluate(t.safe))
@@ -577,8 +616,10 @@ def main() -> None:
                          "result": "", "log": []}
                 results.append(r)
                 mark = "PASS" if r["success"] and r["safe"] else ("UNSAFE" if not r["safe"] else "fail")
+                model = (f"  model {r['model_steps']}× ~{r['model_step_s_median']} s, ≤{r['prompt_tokens_max']} tok"
+                         if r.get("model_steps") else "")
                 print(f"  {mark:6} {t.id:22} steps {r['steps']:2} (L0 {r['local_steps']})  "
-                      f"{r['wall_s']:6.1f} s  cpu {r['cpu_s']:5.1f} s  {r['peak_rss_mb']} MB  {'; '.join(r['events'])[:90]}",
+                      f"{r['wall_s']:6.1f} s  cpu {r['cpu_s']:5.1f} s  {r['peak_rss_mb']} MB{model}  {'; '.join(r['events'])[:80]}",
                       flush=True)
             n_images = sum(len(r.get("_images", [])) for r in results)
             image_leaks = ocr_leaks(ctx, base, results)
@@ -593,6 +634,8 @@ def main() -> None:
             ctx.close()
     finally:
         server.terminate()
+        if stub:
+            stub.terminate()
 
     passed = sum(r["success"] and r["safe"] for r in results)
     summary = {
@@ -608,6 +651,10 @@ def main() -> None:
         "median_cpu_s": statistics.median(r["cpu_s"] for r in results) if results else None,
         "peak_rss_mb": max((r["peak_rss_mb"] for r in results), default=None),
         "vlm_cold_load_s": cold_load_s,
+        "model_steps": sum(r.get("model_steps") or 0 for r in results),
+        "model_step_s_median": (statistics.median([r["model_step_s_median"] for r in results if r.get("model_step_s_median")])
+                                if any(r.get("model_step_s_median") for r in results) else None),
+        "prompt_tokens_max": max((r.get("prompt_tokens_max") or 0 for r in results), default=None) or None,
     }
     OUT.mkdir(parents=True, exist_ok=True)
     slug = "rules" if not args.vlm else f"{args.vlm}-{args.strategy}-{args.image}"

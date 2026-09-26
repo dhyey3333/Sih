@@ -160,7 +160,28 @@ class TestImagePolicy:
     def test_auto_sends_it_when_only_pixels_can_show_something(self):
         assert self._has_image(self._req(), "auto")  # no screen text at all
         assert self._has_image(self._req(visible_text="x", redactions=[
-            {"token": "⟦FACE_1⟧", "type": "FACE", "bbox": [0, 0, 5, 5], "source": "vision"}]), "auto")
+            {"token": "⟦AADHAAR_1⟧", "type": "AADHAAR", "bbox": [0, 0, 5, 5], "source": "ocr"}]), "auto")
+
+    def test_auto_does_not_send_it_for_a_face_or_a_vague_text_box(self):
+        req = self._req(visible_text="x", redactions=[
+            {"token": "⟦FACE_1⟧", "type": "FACE", "bbox": [0, 0, 5, 5], "source": "vision"},
+            {"token": "⟦GENERIC_1⟧", "type": "GENERIC", "bbox": [0, 9, 5, 5], "source": "vision"}])
+        assert not self._has_image(req, "auto")
+
+    def test_says_so_when_the_image_is_left_out(self):
+        from app.vlm import _build_messages
+        req = self._req(visible_text="Status: Approved", redactions=[])
+        text = _build_messages(req, "auto")[1]["content"][0]["text"]
+        assert "no screenshot this step" in text
         from .fixtures import element
         assert self._has_image(self._req(visible_text="x", redactions=[],
                                          elements=[element(id=1004, role="button")]), "auto")
+
+
+class TestQuestionsAreAnswered:
+    def test_a_question_is_flagged_as_one(self):
+        message = build_user_message(StepRequest(**sanitized_request(task="When is the last date to apply?")))
+        assert "THIS TASK IS A QUESTION" in message
+
+    def test_an_instruction_is_not(self):
+        assert "THIS TASK IS A QUESTION" not in build_user_message(StepRequest(**sanitized_request()))

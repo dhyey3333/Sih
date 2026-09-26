@@ -14,13 +14,14 @@
  *    session is created once, reused, and released on `pagehide` — otherwise
  *    every open leaks a few hundred MB of WASM heap.
  *
- * WebGPU first, WASM second. Firefox has no WebGPU today, so the WASM path is
- * not a nicety — it is the only path on one of the two required browsers.
+ * WebGPU first, WASM second. Our Firefox build is WASM-only (see below), so the
+ * WASM path is not a nicety — it is the only path on one of the two required browsers.
  */
 
 // `wxt.config.ts` aliases this import per target: Chrome gets ORT's "jsep" build
-// (WebGPU + WASM in one 27 MB binary), Firefox the plain WASM build (13 MB), since
-// it has no WebGPU to use. Both are non-bundled variants, so Vite does not emit a
+// (WebGPU + WASM in one 27 MB binary), Firefox the plain WASM build (13 MB), which
+// runs on every Firefox — WebGPU there is Windows and recent macOS only, still flagged
+// on Linux, and not yet validated with ORT by us. Both are non-bundled variants, so Vite does not emit a
 // second copy of the wasm beside the one staged in public/ort/.
 //
 // `onnxruntime-web/webgpu` is a *third* build ("asyncify", 25 MB) — importing one
@@ -100,7 +101,7 @@ export async function createSession(
   modelPath: ModelPath,
   /**
    * Force a backend instead of preferring WebGPU. Only used by the benchmark in
-   * `eval/`, which has to report both numbers — Firefox has no WebGPU today, so
+   * `eval/`, which has to report both numbers — our Firefox build is WASM-only, so
    * the WASM figure is not a footnote, it is the number for one of the two
    * browsers we must support.
    */

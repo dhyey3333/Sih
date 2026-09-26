@@ -176,12 +176,11 @@
 
   $('result').hidden = false;
   $('result-title').textContent = 'Task complete';
-  $('result-text').textContent =
-    'http://localhost:5173/kyc.html — KYC, step 2. The screen has 9 inputs, ' +
-    '3 of them empty, 2 buttons. 7 fields ask for personal data: AADHAAR, CARD, ' +
-    'EMAIL, NAME, PAN, PASSWORD, PHONE. 18 regions were redacted before this ' +
-    'reached me: AADHAAR, CARD, FACE, ID_DOCUMENT, NAME, PASSWORD. I cannot see ' +
-    'any of those values. Buttons: “Save draft”, “Submit application”.';
+  // An answer about the user's own data: the server named a token, the panel filled
+  // in the value (demo profile — fake data), and the note says what was actually seen.
+  $('result-text').textContent = 'From the screen: “Registered email ananya.iyer@example.com”';
+  $('result-note').hidden = false;
+  $('result-note').textContent = 'The server saw only ⟦PROFILE.EMAIL⟧. Filled in here, on this device.';
 
   $('guard').dataset.state = 'pass';
   $('guard-title').textContent = 'Egress guard passed';

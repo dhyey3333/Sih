@@ -24,8 +24,9 @@ function ortBuild(file: string): string {
  * Which ORT build each target gets, and therefore which WASM binary it needs.
  *
  * Chrome can use WebGPU, so it gets the `jsep` build: WebGPU and WASM execution
- * providers in one 27 MB binary. Firefox has no WebGPU, so the same file would ship
- * 14 MB of code that can never run — it gets the plain WASM build (13 MB) instead.
+ * providers in one 27 MB binary. Firefox gets the plain WASM build (13 MB): it runs
+ * on every Firefox, where WebGPU is Windows and recent macOS only (still flagged on
+ * Linux) and ORT's WebGPU backend is not yet validated by us.
  * `runtime.ts` already decides at load time which provider to ask for, and on
  * Firefox that decision was always "wasm".
  */

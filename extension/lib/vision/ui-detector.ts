@@ -13,8 +13,8 @@
  *    click on one into a `click_xy` at its centre, because there is no DOM element
  *    to resolve.
  *
- * The model is optional. If `ui_detector.onnx` is not in the bundle — it is produced
- * by a training run, not committed — everything degrades to the DOM, YuNet and OCR
+ * The model is optional. It is committed (`public/models/ui_detector.onnx`, produced by
+ * `ml/train.py`), but if it is missing everything degrades to the DOM, YuNet and OCR
  * layers, which is exactly the state before M5.
  */
 
@@ -331,16 +331,23 @@ export function undeclaredControls(found: VisionElement[], declared: Array<{ bbo
   return found.filter((v) => !declared.some((d) => sameControl(v.bbox, d.bbox)));
 }
 
+/**
+ * Either box's centre inside the other, or a real overlap. Both directions, because a
+ * pixel box is often drawn around a small control *and its label* — a 13 px radio
+ * button sits inside the box, not the box's centre inside the radio.
+ */
 function sameControl(a: Rect, b: Rect): boolean {
-  const cx = a.x + a.w / 2;
-  const cy = a.y + a.h / 2;
-  const tolerance = 4;
-  if (cx >= b.x - tolerance && cx <= b.x + b.w + tolerance && cy >= b.y - tolerance && cy <= b.y + b.h + tolerance) {
-    return true;
-  }
+  if (centreInside(a, b) || centreInside(b, a)) return true;
   const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
   const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
   if (w <= 0 || h <= 0) return false;
   const inter = w * h;
   return inter / (a.w * a.h + b.w * b.h - inter) > 0.3;
+}
+
+function centreInside(inner: Rect, outer: Rect, tolerance = 4): boolean {
+  const cx = inner.x + inner.w / 2;
+  const cy = inner.y + inner.h / 2;
+  return cx >= outer.x - tolerance && cx <= outer.x + outer.w + tolerance &&
+    cy >= outer.y - tolerance && cy <= outer.y + outer.h + tolerance;
 }

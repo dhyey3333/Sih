@@ -52,6 +52,8 @@ export function isToken(value: string): boolean {
 interface VaultEntry {
   value: string;
   type: PiiType;
+  /** The site a page value was first seen on. Absent for the user's own profile. */
+  origin?: string;
 }
 
 export interface KnownValueRange {
@@ -76,6 +78,21 @@ export class Vault {
   /** per-type counter for `⟦EMAIL_1⟧`, `⟦EMAIL_2⟧`, ... */
   private readonly counters = new Map<PiiType, number>();
   private readonly profile = new Map<ProfileKey, string>();
+  /** The site being read now; new page values are recorded as seen there. */
+  private page = '';
+
+  /** Set by the pipeline before it tokenizes a page (origin only, never a path). */
+  setPage(origin: string): void {
+    this.page = origin;
+  }
+
+  /**
+   * Where a value was first seen, for a value that came from a page. Undefined for a
+   * profile token — the user's own data, theirs to use on any site.
+   */
+  originOf(token: string): string | undefined {
+    return this.entries.get(token)?.origin;
+  }
 
   /* ---------------- profile ---------------- */
 
@@ -129,7 +146,7 @@ export class Vault {
     this.counters.set(type, next);
     const token = `⟦${type}_${next}⟧`;
 
-    this.entries.set(token, { value, type });
+    this.entries.set(token, { value, type, ...(this.page ? { origin: this.page } : {}) });
     this.normalizedToToken.set(normalized, token);
     return token;
   }

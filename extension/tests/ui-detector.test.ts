@@ -149,6 +149,11 @@ describe('undeclaredControls — one name per control', () => {
     expect(undeclaredControls(found, declared).map((e) => e.id)).toEqual([1002]);
   });
 
+  it('drops a pixel box drawn around a small control and its label', () => {
+    const aroundRadio = [{ id: 1003, role: 'button', bbox: box(300, 400, 120, 24), confidence: 0.7 }];
+    expect(undeclaredControls(aroundRadio, [{ bbox: box(305, 406, 13, 13) }])).toEqual([]);
+  });
+
   it('keeps everything on a canvas app, where the DOM declares nothing', () => {
     expect(undeclaredControls(found, [])).toHaveLength(3);
   });

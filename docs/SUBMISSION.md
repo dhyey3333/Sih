@@ -49,9 +49,20 @@ real browser over the shipped code. Nothing here is an estimate.
 
 ### 1. Accuracy of visual context from screen — 25%
 
-The agent completed *"fill this form with my profile and stop before submitting"*
-end to end: **9 fields filled across 9 steps**, each one identified from the
-sanitized context alone, then stopped at the Submit button as instructed.
+Measured as what the context is *for*: whether the agent, working from the sanitized
+context alone, completes the task. `uv run python -m eval.run_tasks` drives the packed
+extension's real side panel over **19 tasks with a checkable outcome** — forms with
+dropdowns, radio groups and date pickers, a two-step wizard, a form below the fold and
+one in its own scrolling panel, a form in an iframe and one in shadow DOM, a
+React-controlled form, a rich-text editor, a Hindi form, a declaration, three
+questions about the screen, and two prompt-injection pages.
+
+| Planner | Completed | Safe |
+|---|---|---|
+| Rule-based, no model | **17 / 19** | **19 / 19** |
+
+The two misses are named: a deadline the vision detector over-redacts, so the answer
+is withheld (D29), and a task phrased so that only a model can plan it.
 
 Three perception layers feed one element list:
 
@@ -127,6 +138,12 @@ an order id without giving up the precision column.
 |---|---|
 | Pixel recall | 78–100% per page; 100% on six of the ten |
 | **Leak test** | **0**, on all ten pages |
+| **On the wire, end to end** | 40 request bodies and 40 screenshots from the task benchmark: **0** profile values in either |
+
+The last row is checked from outside the extension (D34): the benchmark records what
+the panel actually posted and OCRs what it actually sent. It found one real leak, once
+— a pixel-ratio mismatch that drew every box at half its position (D33) — which is
+fixed, and is why the image half of the check exists.
 
 The leak test is the one that matters. It renders the redacted image exactly as the
 extension renders it, reads it back with OCR, and counts ground-truth values still
@@ -136,6 +153,10 @@ Text is painted with an opaque fill, never blurred — blurred text is recoverab
 because the glyph alphabet is small and known. Only faces are pixelated.
 
 ### 4. Client-side resource utilisation — 20%
+
+Measured per task in the benchmark, for the whole browser process tree (the browser
+itself included, so this is an upper bound on what the extension costs): median
+**1.3 CPU-seconds per task**, peak resident memory **≤ 1.3 GB**.
 
 | Asset | Size |
 |---|---|
@@ -147,9 +168,9 @@ because the glyph alphabet is small and known. Only faces are pixelated.
 | **Packed extension — Chrome** | **45.7 MB** |
 | **Packed extension — Firefox** | **32.2 MB** |
 
-Firefox is 30% smaller because it is given a different runtime. It has no WebGPU, so
-the WebGPU half of the combined binary is 14 MB of code that could never execute;
-each target now gets the build it can actually use (D15).
+Firefox is 30% smaller because it is given the WASM-only runtime, which runs on every
+Firefox — WebGPU has shipped on Windows and recent macOS but is still behind a flag on
+Linux — instead of the 27 MB combined WebGPU + WASM binary (D15).
 
 Three things keep the *runtime* cost low, even though the bundle is large:
 
@@ -166,6 +187,12 @@ We also found and fixed a 50× regression here: a machine with no usable GPU sti
 per frame against ~79 ms on WASM. The adapter is now inspected and declined.
 
 ### 5. End-to-end latency — 15%
+
+**Per task**, press-run to done, over the 19-task benchmark with the rule-based
+planner: median **2.7 s**, total 49 s for all nineteen. Several of those seconds are
+the agent deliberately waiting for the page to settle after each action.
+
+**Per step**, on the device:
 
 | | Cold (first look at a page) | Warm (every step after) |
 |---|---|---|
@@ -201,6 +228,26 @@ Aadhaar, PAN, DOB or UPI.
 4. Therefore "nothing leaked" is a property of the architecture, not of a model
    being accurate — which is what makes the claim defensible.
 
+## Designed for India's Digital Personal Data Protection Act, 2023
+
+An agent that reads a government employee's screen processes personal data, so the
+deploying organisation carries the DPDP Act's obligations for whatever it receives.
+The architecture's answer is to receive as little as possible. This is a design
+mapping, not a legal opinion; the Act's substantive obligations apply from May 2027
+under the DPDP Rules, 2025.
+
+| The Act asks | What PrivAgent does |
+|---|---|
+| **§6(1)** — processing limited to the personal data *necessary* for the purpose | The server receives structure and tokens, never values. L0 steps send nothing; L1 sends no image; a banking or ID page is never sent pixels. |
+| **§8(5)** — reasonable security safeguards; the Rules name *obfuscation or masking* | Masking at source: solid-fill redaction and tokenization on the device, then an egress guard that re-scans every outbound payload and blocks on any hit. The server scans again on arrival and refuses rather than forwards. |
+| **§8(6)** — detect and report a breach | Every block is logged by incident *type* and JSON path, never value, on both sides — what the Rules call logs that let a breach be reconstructed. |
+| **§8(7)** — erase once the purpose is served | The profile lives in session storage — memory, gone when the browser closes — and never on disk. Clear drops every value captured from pages at once. The server persists nothing, and holds only tokens while it works. |
+| Consent for what is done in the user's name | Submit, pay, send, delete — in English and Hindi — and every declaration checkbox need an explicit tap. A real value goes into a field of its own kind or the user is asked (gate 4). |
+
+What the server never receives, it cannot breach: the safeguard is architectural, and
+the task benchmark checks it on the wire — every request body and every screenshot,
+from outside the extension.
+
 ## Openness
 
 - Server model: any **open-weights** VLM behind an OpenAI-compatible endpoint —
@@ -216,10 +263,11 @@ Aadhaar, PAN, DOB or UPI.
 
 | Command | What it checks |
 |---|---|
-| `cd extension && npm test` | 333 unit tests — validators, heuristics, fusion, agent gates, panel markup |
-| `cd server && uv run pytest` | 68 tests, including the VLM path over a real socket |
+| `cd extension && npm test` | 460 unit tests — validators, heuristics, fusion, agent gates, panel markup |
+| `cd server && uv run pytest` | 141 tests, including the VLM path over a real socket |
 | `cd ml && uv run --group dev pytest` | 20 tests over the data engine |
-| `uv run python -m eval.run_all` | Every number in this document, in a real browser |
+| `uv run python -m eval.run_all` | Every detection and redaction number, in a real browser |
+| `uv run python -m eval.run_tasks` | The 19-task agent benchmark, with the wire check; `--vlm ollama` for a local model, `--vlm mock-injected` for the injection stress test |
 | `uv run python -m eval.smoke_extension` | The **packed** extension boots clean and loads its bundled runtime |
 | `cd extension && npx web-ext lint -s .output/firefox-mv3` | 0 errors |
 
@@ -231,9 +279,11 @@ Aadhaar, PAN, DOB or UPI.
 - **No real-screenshot test set.** Everything measured is the demo site, the holdout,
   or synthetic pages. Hand-labelled screenshots of real portals, never trained on,
   is the honest next test.
-- The live VLM test runs against a **protocol conformance stub**, not model weights.
-  It proves the wire path, the prompt and the parsing; it proves nothing about how
-  well a model would choose (D23).
+- The only real model measured is **Qwen2.5-VL 3B on an 8 GB laptop**: 7 s a step
+  with text, over a minute with the screenshot. A larger model on a GPU is three
+  environment variables away and has not been measured.
+- The vision detector's vague "personal text" class fires on some dates; the text
+  layer does not override it, so one benchmark question goes unanswered (D29).
 - Names belonging to someone other than the user are not detected — there is no NER
   model, by choice (D4).
 - The holdout's 0.784 is the only truly blind number it will ever produce. Everything

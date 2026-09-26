@@ -101,16 +101,21 @@ def needs_image(request: StepRequest) -> bool:
         return True
     if any(e.id >= 1000 for e in request.elements):
         return True
-    return any(r.source in {"vision", "ocr", "dom-image"} for r in request.redactions)
+    # Content inside an image: text OCR found in one, or an image the DOM flagged (an
+    # ID-card scan, a frame it could not read). A face or a vague text box does not
+    # count — what it covers is either pixelated or already in the screen text.
+    return any(r.source in {"ocr", "dom-image"} for r in request.redactions)
 
 
 def _build_messages(request: StepRequest, image: str = "always") -> list[dict]:
-    content: list[dict] = [{"type": "text", "text": build_user_message(request)}]
-
     # Only at disclosure level 2, and it is the *redacted* JPEG — the extension
     # never produces an unredacted one for the wire.
-    attach = image == "always" or (image == "auto" and needs_image(request))
-    if request.screen is not None and attach:
+    attach = request.screen is not None and (
+        image == "always" or (image == "auto" and needs_image(request))
+    )
+    content: list[dict] = [{"type": "text", "text": build_user_message(request, attach)}]
+
+    if attach:
         content.append(
             {
                 "type": "image_url",
@@ -239,9 +244,17 @@ async def decide(request: StepRequest, config: VLMConfig) -> StepResponse:
     action.pop("model", None)
 
     try:
-        return StepResponse(**action, planner="vlm", model=config.model)
+        response = StepResponse(**action, planner="vlm", model=config.model)
     except Exception as exc:  # pydantic validation
         raise VLMError(f"VLM action failed validation: {type(exc).__name__}") from exc
+
+    # What the model actually read. A local server with a small context window cuts a
+    # long prompt from the front — the system prompt, with every rule in it — and says
+    # nothing; this number is how that becomes visible.
+    usage = payload.get("usage") or {}
+    if isinstance(usage.get("prompt_tokens"), (int, float)):
+        response.timings = {"prompt_tokens": float(usage["prompt_tokens"])}
+    return response
 
 
 async def _post(config: VLMConfig, body: dict, headers: dict) -> dict:

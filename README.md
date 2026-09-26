@@ -59,8 +59,30 @@ A model can be wrong. The architecture is built so that being wrong is not enoug
 
 ## Where it stands
 
-All seven milestones are done and measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
+Nine milestones, each measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
 [docs/PLAN.md](docs/PLAN.md) for the roadmap.
+
+**The agent, end to end** — `uv run python -m eval.run_tasks` drives the packed extension's real
+side panel over **19 tasks with a checkable outcome**: forms with dropdowns, radio groups and date
+pickers, a two-step wizard, a form below the fold and one in its own scrolling panel, forms inside
+an iframe and in shadow DOM, a React-controlled form, a rich-text editor, a Hindi form, a
+declaration, three questions about the screen, and two pages that try to talk the agent into
+leaking the user's Aadhaar number.
+
+| Rule-based planner (no model) | |
+|---|---|
+| Tasks completed | **17 / 19**, every one safe |
+| End-to-end time | median **2.7 s** per task, press-run to done |
+| Checked on the wire | every request body searched for the profile's values, and every screenshot sent OCR'd: **0 found** in 40 of each |
+
+The wire check runs from outside the extension, so it tests what was sent rather than what the
+extension says it sent — and it once caught a real leak (a pixel-ratio mismatch that left a typed
+email legible to the model), which is now fixed and guarded.
+
+**Against a real model** — Qwen2.5-VL 3B, open weights, on the laptop through Ollama. It answers
+questions from the screen, and when it went wrong it went wrong in the ways the gates exist for:
+it typed a made-up email into a login form, and on the injection page it reached for the Aadhaar
+number. The client stopped both. See [docs/SUBMISSION.md](docs/SUBMISSION.md) for its numbers.
 
 **Privacy filter**, scored automatically in a real browser against `data-pii` ground truth:
 
@@ -89,7 +111,7 @@ registration, a public helpline.
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
 | Handled with no request at all | **5 of 9 fields** (L0: the page declared the field, the vault had the value) |
-| Tests | 421 passing (333 extension, 68 server, 20 ml) |
+| Tests | 621 passing (460 extension, 141 server, 20 ml) |
 
 **On-device vision**, YuNet via onnxruntime-web:
 
@@ -124,21 +146,39 @@ Labels come from the page's own `data-pii` attributes, read back with
 annotation and cannot drift apart. See [`ml/README.md`](ml/README.md).
 
 **Client resources.** Chrome **45.7 MB** packed, Firefox **32.2 MB**. Firefox is 30% smaller
-because it is given a different ONNX runtime: it has no WebGPU, so the WebGPU half of the
-combined binary is 14 MB that could never execute. Neither number is what you pay per page — the
+because it is given the WASM-only ONNX runtime, which runs on every Firefox (WebGPU is still
+behind a flag on Linux), instead of the combined WebGPU + WASM binary. Neither number is what you pay per page — the
 models load lazily, and a screen the DOM layer handles alone costs 2–27 ms and zero megabytes.
 
 **Not done yet, stated plainly.** The detector is trained entirely on pages our own generator
 drew. There is **no real-screenshot test set** — everything measured
-is the demo site, the holdout, or synthetic pages, and hand-labelled screenshots of real portals
-are the honest next test. The VLM path is exercised end to end over a real socket, but against a
-**protocol conformance stub**, not model weights: it proves the request shape, the prompt and the
-parsing, and nothing about how well a model would choose. Names belonging to someone other than
-the user are not detected, by choice — there is no NER model. And the holdout's 0.784 is the only
-truly blind number it will ever produce; everything after it was measured on pages that have now
-been looked at.
+is the demo site, the holdout, the task pages, or synthetic pages, and hand-labelled screenshots
+of real portals are the honest next test. The only real model we have measured is a 3B one on an
+8 GB laptop, where a step takes 7 s with text and over a minute with the screenshot; a larger model
+on real hardware is three environment variables away and unmeasured. The detector's vague
+"personal text" class fires on some dates, which costs one benchmark question its answer. Names
+belonging to someone other than the user are not detected by the text layer, by choice — there is
+no NER model. And the holdout's 0.784 is the only truly blind number it will ever produce;
+everything after it was measured on pages that have now been looked at.
 
 ## Try it
+
+One command installs everything fresh for your machine and builds the extension:
+
+```bash
+./scripts/setup.sh
+```
+
+On Windows, in PowerShell: `.\scripts\setup.ps1`. (Never copy `node_modules` between machines —
+some packages are native binaries built for one operating system.)
+
+**Browsers.** One build, `extension/.output/chrome-mv3`, for Chrome, Brave and Edge — the packed
+extension boots clean in Brave under `eval.smoke_extension --browser`; Edge is the same Chromium
+build and untested by us. Firefox gets `extension/.output/firefox-mv3`. A browser with no side
+panel (Opera) gets the same panel as a window pinned to the tab. Safari needs Xcode repackaging
+and is out of scope.
+
+Or step by step:
 
 ```bash
 cd extension && npm install
@@ -212,7 +252,7 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 |---|---|
 | `npm run dev` / `dev:firefox` | run the extension |
 | `npm run build` / `build:firefox` / `build:all` | production builds |
-| `npm test` | 333 unit tests |
+| `npm test` | 460 unit tests |
 | `npm run assets` | restage the ORT WASM binaries from node_modules |
 | `npm run compile` | typecheck |
 | `npm run build:domcheck` | standalone bundle for scoring a page |
@@ -223,6 +263,7 @@ From the repo root:
 | | |
 |---|---|
 | `uv run python -m eval.run_all` | every number above, in a real browser |
+| `uv run python -m eval.run_tasks` | the 19-task agent benchmark, with the wire check (`--vlm ollama` for a local model, `--vlm mock-injected` for the injection stress test) |
 | `uv run python -m eval.smoke_extension` | boots the **packed** extension and checks it comes up clean |
 
 ## A note on data

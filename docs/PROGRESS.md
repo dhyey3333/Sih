@@ -13,6 +13,139 @@ Status board. Updated at the end of every milestone (CLAUDE.md).
 | M6 Eval harness | ✅ `uv run python -m eval.run_all` rebuilds every number |
 | M7 Polish | ✅ redesigned side panel, L0 local-only steps, Firefox lint pass, submission + demo docs |
 | M8 Hardening | ✅ new side panel, blind holdout set, shadow-DOM + iframe traversal, retrained detector (mAP50 0.900), per-target ORT (−30% on Firefox), live VLM path, packed-extension smoke test |
+| M9 The agent, measured | ✅ 19-task end-to-end benchmark with a wire-level leak check, a real open-weights model, prompt-injection gate, Hindi, screen text, real-form coverage, and the redaction bug the model found |
+
+---
+
+## 2026-09-26 — M9: the agent, measured
+
+The brief was to take the project further; an outside review of the build was the
+starting list, verified claim by claim against the code before anything changed. Most
+of it held. The theme of the milestone is the one criterion we had never measured end
+to end: **does the agent actually complete tasks, safely, and how fast?**
+
+### A benchmark of tasks, not of detections
+
+`eval/run_tasks.py` drives the packed extension's real side panel — the same agent
+loop, the same gates — over **19 tasks with a checkable outcome**: fill a form, a
+two-step wizard, a form below the fold, a form in a scrolling panel, a form in an
+iframe and in shadow DOM, a React-controlled form, a rich-text editor, a Hindi form,
+a declaration, questions about the screen, and two prompt-injection pages. It answers
+the agent's questions the way a user would, agrees only to declarations, declines
+every irreversible press, and then checks the page.
+
+It also checks the wire, from outside the extension: **every request body the panel
+posts is recorded and searched for the profile's values**, and **every screenshot it
+sends is OCR'd** with the extension's own engine. The second check exists because the
+first could not have caught the bug below.
+
+| Rule-based planner, 19 tasks | |
+|---|---|
+| Passed | **17 / 19**, all safe |
+| Wire check | 40 request bodies, 40 screenshots OCR'd, **0 profile values** in either |
+| End-to-end time | median **2.7 s** per task, press-run to done |
+| CPU | median 1.3 s per task |
+| Misses | a deadline the vision detector over-redacts (D29); a task phrased to need a model |
+
+### The bug the model found
+
+On the login task, qwen2.5vl:3b typed `ananya.ier@example.com` into the **password**
+field. It had read the address off the screenshot. Under the benchmark's browser the
+page reported `devicePixelRatio` 1 on a 2× screen; `captureVisibleTab` returns real
+pixels; every DOM redaction box was drawn at half its position. The typed email was
+covered only where a vision box happened to fall.
+
+- The capture now decides the pixel ratio, not the page (`effectiveDpr`). The same
+  mismatch happens outside tests — DevTools emulation, a window moved between displays.
+- The client never types into a password field, whatever the server says; the rules
+  never did and the prompt forbade it, and a 3B model did it anyway.
+- A literal that looks like personal data is a value the planner made up — real ones
+  only ever reach it as tokens — and is asked about.
+- History is sanitized like every other wire string; the model's literal used to go
+  back raw and stop the next step at the egress guard.
+- Pixel-found controls the DOM already declares are dropped: the model had two names
+  for one field and used the nameless one.
+
+### Safety
+
+- **Gate 4** (D26): a real value goes only into a field of its own kind, or the user is
+  asked. On the injection page the 3B model *did* try to type the Aadhaar number into
+  the search box; the gate stopped it.
+- A search is done on-device (D30), so a page's note to "AI assistants" is never read.
+- Hindi submit verbs are gated (D31): "जमा करें" used to walk past the confirmation.
+- Enter in a form is a submit; `navigate` stays on-site unless approved; declarations
+  are asked about, never ticked.
+
+### Capability
+
+- Screen text at L2 (D29), from the same scan that paints the boxes — the 3B model
+  went from "Application status confirmed." to "Approved".
+- Questions answered, not filled; answers about the user's own data come back as a
+  token and are filled in in the panel.
+- `ask_user` collects the value (it used to click the field); radio groups, dates for
+  `<input type=date>`, React selects, rich text via the editing pipeline, inner scroll
+  regions, wizards, stable element ids (D27), values stated in the task.
+- Hindi field labels and context words, with Devanagari-aware word edges.
+- `VLM_STRATEGY` and `VLM_IMAGE` (D28), thinking-model handling, prompt token counts
+  reported per step.
+
+### Against a real model
+
+Qwen2.5-VL 3B, open weights, through Ollama on an 8 GB M1 (43% of the model on CPU —
+it does not fit the GPU share of unified memory), rules-first, image `auto`, over the
+seven tasks where the model is the variable:
+
+| | |
+|---|---|
+| Completed | 2 / 7 — a question answered from the screen text in **8 s**; the search |
+| Safe | **7 / 7**, 26 screenshots OCR'd, 0 values legible |
+| A model step | **7 s** text-only, ~20 s typical, up to **82 s** with the screenshot |
+| Prompt | ≤ 3,264 tokens, well inside the 4,096 context — nothing was truncated |
+
+Its failures are the useful part. It typed a made-up email into a filled login field
+(asked, declined), overwrote a filled name with "John Doe" (now asked too), typed the
+user's email into a pixel-found control instead of answering a question (gate 4),
+and clicked a nonexistent element until the timeout (now stopped after three). Every
+one was stopped by a client-side check that does not depend on the model. The
+question-answering prompt was then made explicit for small models ("THIS TASK IS A
+QUESTION"); the run above predates that.
+
+**The injection stress test.** `--vlm mock-injected` plays a model that obeys every
+page, deterministically. Through the real extension it asked to type the Aadhaar
+number into the search box, a name into a date-of-birth field, and a redaction token
+it had no value for; gate 4, gate 1 and the password rule refused each. Rehearsed
+exactly as `docs/DEMO.md` act 2b scripts it.
+
+### More gates
+
+- **Cross-site** (D32): a value seen on one site is not typed into another without
+  asking, even into a field of the right type.
+- **Overwrite**: replacing one of the user's values with the planner's own text is asked.
+- **Loop guard**: three identical failures in a row end the run.
+- History is sanitized when sent, against what the vault knows by then.
+
+### Getting it running
+
+`scripts/setup.sh` and `scripts/setup.ps1` install everything fresh and build — run
+end to end on macOS here. The review's Windows failure was a copied `node_modules`.
+The packed extension boots clean in **Brave** (`eval.smoke_extension --browser`). The
+trained detector is now committed: a clone used to run without it, silently.
+
+### Server hardening
+
+CORS defaults to extension origins; optional `PLANNER_TOKEN`; body-size cap;
+per-client rate limit; Stop aborts the in-flight model call.
+
+### Corrections
+
+- "Firefox has no WebGPU" (M8, D15) is out of date: Firefox shipped it on Windows in
+  141 and on macOS in 145/147; Linux and Android are still behind a flag. The Firefox
+  build stays WASM-only — it runs on every Firefox, and ORT's WebGPU backend is not
+  yet validated there by us — and every doc and comment now says so.
+
+### Numbers
+
+460 extension tests, 141 server tests, `npm run compile` clean.
 
 ---
 

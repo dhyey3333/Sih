@@ -196,7 +196,7 @@ async def step(request: StepRequest, http_request: Request) -> JSONResponse:
 
     timings["inference"] = _ms(inference_start)
     timings["server_total"] = _ms(started)
-    response.timings = timings
+    response.timings = {**(response.timings or {}), **timings}
 
     if fallback_reason and response.reason:
         response.reason = f"{response.reason} (VLM unavailable: {fallback_reason})"

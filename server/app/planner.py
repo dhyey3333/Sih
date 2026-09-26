@@ -74,6 +74,12 @@ _READ_ONLY_PHRASES = (
 )
 
 
+def is_question(task: str) -> bool:
+    """A task that wants to be told something, not have something done."""
+    t = task.lower().strip()
+    return t.endswith("?") or bool(_QUESTION.match(t)) or any(p in t for p in _READ_ONLY_PHRASES)
+
+
 def _is_editable(element: WireElement) -> bool:
     return element.role in {"textbox", "searchbox", "combobox"} and not element.disabled
 

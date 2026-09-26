@@ -20,7 +20,7 @@
 
 import type { PiiType, WireElement } from './protocol';
 import { scanText } from './pii/validators';
-import { TOKEN_PATTERN, type Vault } from './pii/vault';
+import { isToken, TOKEN_PATTERN, type Vault } from './pii/vault';
 
 export type GateVerdict =
   | { ok: true }
@@ -57,6 +57,11 @@ export function friendlyType(type: PiiType): string {
   return FRIENDLY[type] ?? type.toLowerCase().replace(/_/g, ' ');
 }
 
+/** "an email address", "an OTP", "a UPI ID" — by sound, which a vowel test gets wrong for UPI. */
+function withArticle(noun: string): string {
+  return `${/^[aeiou]/i.test(noun) && !/^u(pi|id)/i.test(noun) ? 'an' : 'a'} ${noun}`;
+}
+
 /**
  * Check a `type` action's text against its target.
  *
@@ -68,12 +73,31 @@ export function checkValueTarget(
   text: string,
   element: WireElement | undefined,
   vault: Vault,
+  /** The site being typed into. With it, a value from another site is caught too. */
+  pageOrigin?: string,
 ): GateVerdict {
   for (const match of text.matchAll(TOKEN_PATTERN)) {
     const valueType = vault.typeOf(match[0]);
     // Unknown tokens are gate 1's job (refused outright); faces and scans carry no
     // value to type. Neither is this gate's concern.
     if (!valueType) continue;
+
+    // A value seen on one site, bound for another. The type check alone would let
+    // it through — an email into an email field — and that is exactly the attack:
+    // a page writes "⟦EMAIL_3⟧", minted for an address the user saw elsewhere, and
+    // asks for it in its own sign-up form. Profile tokens are exempt: the user's own
+    // data is theirs to use anywhere.
+    const seenOn = vault.originOf(match[0]);
+    if (seenOn && pageOrigin && seenOn !== pageOrigin) {
+      return {
+        ok: false,
+        valueType,
+        fieldType: element?.sensitive,
+        question:
+          `The agent wants to type ${withArticle(friendlyType(valueType))} it saw on ${hostOf(seenOn)} ` +
+          `into ${hostOf(pageOrigin)}. That is how a page would carry data from one site to another. Allow?`,
+      };
+    }
 
     const fieldType = element?.sensitive;
     if (fieldType === valueType) continue;
@@ -96,6 +120,9 @@ export function checkValueTarget(
   return { ok: true };
 }
 
+/** Not TOKEN_PATTERN: that one is global, and `.test` on a global regex keeps state. */
+const HAS_TOKEN = /⟦[A-Z][A-Z0-9_.]*⟧/;
+
 /**
  * A literal that looks like personal data, bound for a field that holds it.
  *
@@ -107,6 +134,18 @@ export function checkValueTarget(
  */
 export function checkInventedValue(text: string, element: WireElement | undefined): GateVerdict {
   const literal = text.replace(TOKEN_PATTERN, ' ');
+  // A field that holds one of the user's values, about to be overwritten with
+  // something the planner wrote itself. A 3B model replaced a filled name with
+  // "John Doe"; no pattern recognises a name, so this is checked by what it replaces.
+  if (element?.value && isToken(element.value) && text.trim() && !HAS_TOKEN.test(text)) {
+    const where = `“${(element.label || element.placeholder || `field ${element.id}`).slice(0, 60)}”`;
+    return {
+      ok: false,
+      valueType: element.sensitive ?? 'GENERIC',
+      fieldType: element.sensitive,
+      question: `The planner wants to replace what is in ${where} — one of your values — with text it wrote itself. Allow?`,
+    };
+  }
   const context = [element?.label, element?.placeholder].filter(Boolean).join(' ');
   const match = scanText(literal, { context })[0];
   if (!match) return { ok: true };
@@ -118,7 +157,15 @@ export function checkInventedValue(text: string, element: WireElement | undefine
     valueType: match.type,
     fieldType: element?.sensitive,
     question:
-      `The planner wants to type a ${friendlyType(match.type)} it made up into ${where} — ` +
+      `The planner wants to type ${withArticle(friendlyType(match.type))} it made up into ${where} — ` +
       `not one from your profile, which it only ever sees as a token. Allow?`,
   };
+}
+
+function hostOf(origin: string): string {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return origin;
+  }
 }

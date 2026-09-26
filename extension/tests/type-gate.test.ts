@@ -71,7 +71,7 @@ describe('a value the planner made up', () => {
     expect(verdict.ok).toBe(false);
     if (!verdict.ok) {
       expect(verdict.valueType).toBe('EMAIL');
-      expect(verdict.question).toContain('made up');
+      expect(verdict.question).toContain('an email address it made up');
     }
   });
 
@@ -86,5 +86,48 @@ describe('a value the planner made up', () => {
 
   it('lets a token through — that is how a real value arrives', () => {
     expect(checkInventedValue('⟦PROFILE.EMAIL⟧', el({ sensitive: 'EMAIL' })).ok).toBe(true);
+  });
+});
+
+describe('a value from one site, bound for another', () => {
+  const emailField = el({ label: 'Email', sensitive: 'EMAIL' });
+
+  it('is asked about even when the field type matches', () => {
+    // The attack gate 4's type check alone lets through: an email into an email field.
+    vault.setPage('https://site-a.example');
+    const seen = vault.tokenize('EMAIL', 'r.mehta@mailinator.example');
+    const verdict = checkValueTarget(seen, emailField, vault, 'https://site-b.example');
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.question).toContain('site-a.example');
+      expect(verdict.question).toContain('site-b.example');
+    }
+  });
+
+  it('goes through on the site it came from', () => {
+    vault.setPage('https://site-a.example');
+    const seen = vault.tokenize('EMAIL', 'r.mehta@mailinator.example');
+    expect(checkValueTarget(seen, emailField, vault, 'https://site-a.example').ok).toBe(true);
+  });
+
+  it('never applies to the user’s own profile', () => {
+    vault.setPage('https://site-a.example');
+    expect(checkValueTarget('⟦PROFILE.EMAIL⟧', emailField, vault, 'https://site-b.example').ok).toBe(true);
+  });
+});
+
+describe('overwriting one of your values', () => {
+  it('is asked about when the replacement is the planner’s own text', () => {
+    // What a 3B model did: a name filled from the profile, replaced with "John Doe".
+    const filled = el({ label: 'Candidate name', sensitive: 'NAME', value: '⟦PROFILE.FULL_NAME⟧' });
+    const verdict = checkInventedValue('John Doe', filled);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.question).toContain('replace');
+  });
+
+  it('is fine when the replacement is itself a token, or the field is empty', () => {
+    const filled = el({ label: 'Candidate name', sensitive: 'NAME', value: '⟦PROFILE.FULL_NAME⟧' });
+    expect(checkInventedValue('⟦PROFILE.FULL_NAME⟧', filled).ok).toBe(true);
+    expect(checkInventedValue('Suresh', el({ label: 'Nickname' })).ok).toBe(true);
   });
 });

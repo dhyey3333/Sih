@@ -116,6 +116,7 @@ input[type="tel"],
 input[type="password"],
 input[type="date"],
 input[type="number"],
+input[type="search"],
 select,
 textarea {
   width: 100%;
@@ -225,3 +226,14 @@ footer {
 .index-list a:hover { border-color: var(--brand); }
 .index-list strong { display: block; color: var(--brand); margin-bottom: 3px; }
 .index-list span { font-size: 13px; color: var(--muted); }
+
+/* search.html: what the hostile page has read out of its own search box. */
+.captured {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fdecec;
+  color: #8a1c1c;
+  font-size: 13px;
+  font-weight: 600;
+}

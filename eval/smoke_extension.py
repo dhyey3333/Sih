@@ -2,6 +2,7 @@
 
     cd extension && npm run build
     uv run python -m eval.smoke_extension
+    uv run python -m eval.smoke_extension --browser "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
 
 Everything else in `eval/` measures the library code through a bundle. This loads
 the built Chrome artifact the way a user would — same manifest, same CSP, same
@@ -37,6 +38,12 @@ IGNORE = (
 
 
 def main() -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Boot the packed extension and check it comes up clean.")
+    ap.add_argument("--browser", help="another Chromium browser's executable (Edge, Brave); default: Playwright's Chromium")
+    args = ap.parse_args()
+
     if not BUILD.exists():
         print(f"{BUILD.relative_to(ROOT)} is missing. Build it:  cd extension && npm run build")
         return 1
@@ -46,6 +53,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as profile, sync_playwright() as pw:
         context = pw.chromium.launch_persistent_context(
             profile,
+            executable_path=args.browser,
             headless=False,  # MV3 service workers do not start in headless mode
             args=[
                 f"--disable-extensions-except={BUILD}",

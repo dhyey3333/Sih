@@ -97,7 +97,7 @@ def measure_pages(page, base: str, names=PAGES, folder: str = "demo-site") -> li
 
 
 def benchmark_backends(page, base: str, runs: int = 8) -> list[dict]:
-    """WebGPU vs WASM. Firefox has no WebGPU, so the WASM row is not a footnote."""
+    """WebGPU vs WASM. Our Firefox build is WASM-only, so the WASM row is not a footnote."""
     page.goto(f"{base}/demo-site/kyc.html", wait_until="load")
     page.add_script_tag(url=f"{base}/extension/.output/domcheck/domcheck.js")
     page.wait_for_function("() => !!window.__privagent")
@@ -149,8 +149,8 @@ def asset_sizes() -> dict:
     files = {
         "yunet_onnx": ext / "public/models/face_detection_yunet.onnx",
         "ui_detector_onnx": ext / "public/models/ui_detector.onnx",
-        # Chrome gets the jsep build (WebGPU + WASM); Firefox has no WebGPU, so it
-        # gets the plain one. Reporting a single "ORT size" would be wrong for both.
+        # Chrome gets the jsep build (WebGPU + WASM); Firefox the plain WASM one.
+        # Reporting a single "ORT size" would be wrong for both.
         "ort_wasm_chrome": ext / "public/ort/ort-wasm-simd-threaded.jsep.wasm",
         "ort_wasm_firefox": ext / "public/ort/ort-wasm-simd-threaded.wasm",
         "tesseract_core_wasm": ext / "public/tesseract/tesseract-core-simd-lstm.wasm",

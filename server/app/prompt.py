@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 
+from .planner import is_question
 from .schemas import StepRequest
 
 SYSTEM_PROMPT = """\
@@ -91,12 +92,21 @@ RULES
 """
 
 
-def build_user_message(request: StepRequest) -> str:
+def _element(element) -> dict:
+    out = {k: v for k, v in element.model_dump().items() if v is not None}
+    out["bbox"] = [round(v) for v in element.bbox]
+    # A checkbox's value is its form value ("on"), not its state; `checked` is the state.
+    if element.role in {"checkbox", "radio"}:
+        out.pop("value", None)
+        out.pop("filled", None)
+    return out
+
+
+def build_user_message(request: StepRequest, image_attached: bool | None = None) -> str:
     """The text half of the user turn. The image, when present, is attached beside it."""
-    elements = [
-        {k: v for k, v in element.model_dump().items() if v is not None}
-        for element in request.elements
-    ]
+    if image_attached is None:
+        image_attached = request.screen is not None
+    elements = [_element(element) for element in request.elements]
     redactions = [
         {"token": r.token, "type": r.type, "bbox": [round(v) for v in r.bbox]}
         for r in request.redactions
@@ -114,6 +124,11 @@ def build_user_message(request: StepRequest) -> str:
             "NOTE: no screenshot this step. The page was judged too sensitive, or "
             "redaction covered too much of it to be worth sending. Work from the "
             "element list and their bounding boxes alone."
+        )
+    elif not image_attached:
+        parts.append(
+            "NOTE: no screenshot this step — the element list and the screen text below "
+            "describe everything on the page. Refer to elements by id."
         )
 
     parts.append(f"PROFILE KEYS AVAILABLE: {', '.join(request.profile_keys) or '(none)'}")
@@ -134,5 +149,13 @@ def build_user_message(request: StepRequest) -> str:
         recent = [h.model_dump(exclude_none=True) for h in request.history[-8:]]
         parts.append(f"HISTORY (most recent last):\n{json.dumps(recent, ensure_ascii=False)}")
 
+    if is_question(request.task):
+        # Small models read "answer from the screen" in the system prompt and then go
+        # exploring anyway — eight steps of scrolling on a page that held the answer.
+        parts.append(
+            "THIS TASK IS A QUESTION. Do not click, type or scroll. Reply now with "
+            '{"action": "done", "summary": "<the answer, in the words of the SCREEN TEXT>"}. '
+            "If the answer is behind a token, the token is the answer."
+        )
     parts.append("Respond with exactly one JSON action object.")
     return "\n\n".join(parts)

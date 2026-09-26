@@ -227,8 +227,9 @@ on a modern web page.
 | WebGPU | 312 ms | **50 ms** | 44–69 ms |
 | WASM | 1,497 ms | **181 ms** | 158–315 ms |
 
-WebGPU is 3.6× faster, and the WASM number is not a footnote: Firefox has no WebGPU
-today, so 181 ms is the real figure on one of the two browsers we must support.
+WebGPU is 3.6× faster, and the WASM number is not a footnote: our Firefox build takes
+the WASM path (D15), so 181 ms is the real figure on one of the two browsers we must
+support.
 
 ---
 
@@ -264,9 +265,14 @@ supplies the crop rects for free, which is what makes this cheap enough to do at
 `build:publicAssets` hook drops the one the target cannot use. Vite is aliased to
 ORT's *non-bundled* ESM builds in both cases.
 
-**Why the split.** Firefox has no WebGPU today, so `runtime.ts` was always going to
-choose the WASM provider there — the jsep binary put 14 MB of code in the package
-that could never execute. Splitting costs one hook and takes the Firefox artifact
+**Why the split.** When this was decided Firefox had no WebGPU, so `runtime.ts`
+always chose the WASM provider there and the jsep binary put 14 MB of code in the
+package that could never execute. *Correction, 2026-09:* Firefox has since shipped
+WebGPU — on Windows from 141, on Apple-silicon macOS from 145 (macOS 26) and on all
+macOS from 147; Linux and Android are still behind a flag. We keep the WASM build for
+Firefox anyway: it runs on every Firefox, and onnxruntime-web's WebGPU backend is not
+validated there by us. Moving Firefox to the jsep build is a one-line alias change,
+to be made once it is measured. Splitting costs one hook and takes the Firefox artifact
 from **47.9 MB to 33.8 MB**, a 30% cut on the criterion that measures client-side
 resource use. Chrome is unchanged, because on Chrome the WebGPU half is the point.
 
@@ -624,3 +630,36 @@ entire risk.
 
 **Limits.** Hindi only, of India's scheduled languages. The rules are a list, so a
 second language is a list too — Marathi and Tamil portals are the obvious next two.
+
+## D32 — A value seen on one site is not typed into another without asking
+
+**Decision.** The vault records the origin a page value was first seen on. Gate 4
+asks before a session token (`⟦EMAIL_3⟧`) is typed into a page of a different origin,
+even when the field's type matches. Profile tokens are exempt.
+
+**Why.** The type check alone passes the cross-site version of prompt injection: a
+page writes a token minted for an address the user saw on another site and asks for
+it in its own sign-up form — an email, into an email field. The origin is known only
+on the device, like the type, so the server cannot talk its way past it either.
+
+## D33 — The capture decides the pixel ratio
+
+**Decision.** Image width ÷ CSS viewport width is the ratio used to map every box,
+whenever it disagrees with the page's `devicePixelRatio` by more than 3%.
+
+**Why.** Found by a real model: under the benchmark's browser the page reported 1 on
+a 2× screen, every DOM redaction box was drawn at half its position, and qwen2.5vl:3b
+read a typed email address off the screenshot. The page's claim can be wrong for
+reasons outside our control — emulation, a window moved between displays — and the
+pixels cannot.
+
+## D34 — Check the wire from outside the extension
+
+**Decision.** The task benchmark records every request body the panel posts, through
+the browser's own network events, and searches it for the profile's values; then it
+OCRs every screenshot sent, with the extension's own OCR engine, for the same values.
+A hit fails the task as unsafe.
+
+**Why.** Every other check in the project asks the extension what it did. This one
+watches what left. The text half alone would not have caught D33 — the leak was in
+the pixels — which is why the image half exists.

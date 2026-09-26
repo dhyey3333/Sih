@@ -499,7 +499,7 @@ export class Agent {
     // Skipped for an answer the user just typed for this very field.
     if (!preApproved && (response.action === 'type' || response.action === 'select')) {
       const carried = response.action === 'type' ? (response.text ?? '') : (response.option ?? '');
-      const tokenVerdict = checkValueTarget(carried, element, this.vault);
+      const tokenVerdict = checkValueTarget(carried, element, this.vault, report.output.request.page.origin);
       const verdict = tokenVerdict.ok ? checkInventedValue(carried, element) : tokenVerdict;
       if (!verdict.ok) {
         const proceed = await callbacks.confirm(verdict.question);
@@ -600,7 +600,24 @@ export class Agent {
 
     report.result = result;
     callbacks.onStep(report);
-    if (!result.ok) callbacks.onLog(`Action failed: ${result.error}`, 'err');
+    if (!result.ok) {
+      callbacks.onLog(`Action failed: ${result.error}`, 'err');
+      // A planner that asks for the same failing action again and again is stuck, not
+      // trying: a 3B model clicked a nonexistent "element 1" until the task timed out.
+      if (this.failedInARow(response) >= 3) {
+        throw new Error(`Stopped: the planner asked to ${describeAction(response)} three times, and it failed each time.`);
+      }
+    }
+  }
+
+  private failedInARow(response: StepResponse): number {
+    let n = 0;
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const h = this.history[i]!;
+      if (h.ok || h.action !== response.action || h.element_id !== response.element_id) break;
+      n++;
+    }
+    return n;
   }
 
   /**
