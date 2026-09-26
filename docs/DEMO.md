@@ -14,8 +14,9 @@ page nobody prepared.
 # 1. Demo site
 python3 -m http.server 5173 --directory demo-site
 
-# 2. Server — no API key needed, it falls back to a deterministic planner
-cd server && uv run uvicorn app.main:app --port 8000
+# 2. Server — no API key needed, it falls back to a deterministic planner.
+#    PLANNER_VIEW=1 turns on the live "what the server sees" page.
+cd server && PLANNER_VIEW=1 uv run uvicorn app.main:app --port 8000
 
 # 3. Extension
 cd extension && npm run dev
@@ -29,8 +30,15 @@ Then, once:
 - Press **Reset** to clear the session. The vault keeps the profile.
 - Have a second tab on a real site with a login form.
 
+**Second screen.** Open `http://localhost:8000/view` on the projector or a second
+monitor: every step the server receives appears there as it arrives — the redacted
+screenshot, the tokens, the decision. Keep the side panel on your screen, this on
+theirs, and the boundary is visible from both sides for the whole demo. In act 1
+it stays empty — Analyze sends nothing — which is itself the point.
+
 **Checklist:** side panel open · profile loaded · server says *Connected* under
-Settings · screen sharing set to the browser window, not the whole desktop.
+Settings · `/view` open on the second screen · screen sharing set to the browser
+window, not the whole desktop.
 
 For act 2b you need a planner that *falls for* prompt injection, so the gate has
 something to stop. Run it as a **second** planner on port 8001, beside the ordinary one

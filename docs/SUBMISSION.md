@@ -264,7 +264,7 @@ from outside the extension.
 | Command | What it checks |
 |---|---|
 | `cd extension && npm test` | 460 unit tests — validators, heuristics, fusion, agent gates, panel markup |
-| `cd server && uv run pytest` | 141 tests, including the VLM path over a real socket |
+| `cd server && uv run pytest` | 148 tests, including the VLM path over a real socket and the live view |
 | `cd ml && uv run --group dev pytest` | 20 tests over the data engine |
 | `uv run python -m eval.run_all` | Every detection and redaction number, in a real browser |
 | `uv run python -m eval.run_tasks` | The 19-task agent benchmark, with the wire check; `--vlm ollama` for a local model, `--vlm mock-injected` for the injection stress test |

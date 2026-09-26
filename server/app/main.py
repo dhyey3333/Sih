@@ -25,7 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import egress
+from . import egress, view
 from .planner import plan, search_query
 from .schemas import RejectedResponse, StepRequest, StepResponse
 from .vlm import VLMConfig, VLMError, decide, load_config, needs_image
@@ -114,6 +114,9 @@ app.add_middleware(
 )
 
 
+app.include_router(view.router)
+
+
 #: How the VLM and the rules share the work.
 #:   vlm-first    the model decides every step; rules only when it fails (default)
 #:   rules-first  rules take the steps they are certain of — an empty field the
@@ -155,6 +158,7 @@ async def step(request: StepRequest, http_request: Request) -> JSONResponse:
         logger.warning(
             "Rejected step for session %s: %s", request.session_id, egress.describe(incidents)
         )
+        view.record_rejection(request, incidents)
         return JSONResponse(
             status_code=422,  # Unprocessable Content
             content=RejectedResponse(
@@ -200,6 +204,8 @@ async def step(request: StepRequest, http_request: Request) -> JSONResponse:
 
     if fallback_reason and response.reason:
         response.reason = f"{response.reason} (VLM unavailable: {fallback_reason})"
+
+    view.record_step(request, response)
 
     return JSONResponse(content=response.model_dump(exclude_none=True))
 

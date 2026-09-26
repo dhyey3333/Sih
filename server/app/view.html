@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What the server sees</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --panel: #ffffff; --ink: #1d1d1f; --ink-2: #515154; --ink-3: #86868b;
+    --line: rgba(0, 0, 0, .08); --accent: #0a66ff; --ok: #1f9d55; --bad: #d92d20;
+    --token-bg: rgba(10, 102, 255, .10); --token-ink: #0a4fd1; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0b0d; --panel: #161618; --ink: #f5f5f7; --ink-2: #c7c7cc; --ink-3: #8e8e93;
+      --line: rgba(255, 255, 255, .09); --accent: #4d8dff; --ok: #34c77b; --bad: #ff6b5e;
+      --token-bg: rgba(77, 141, 255, .16); --token-ink: #9cc0ff; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 14px;
+    padding: 18px 28px; background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--line); }
+  .mark { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+    background: linear-gradient(145deg, #3d7bff, #0a4fd1); color: #fff; }
+  .mark svg { width: 18px; height: 18px; }
+  header h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+  header p { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+  .pill { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px;
+    border-radius: 999px; font-size: 12.5px; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); }
+  .pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
+  .pill[data-state="live"] i { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); }
+  main { max-width: 1240px; margin: 0 auto; padding: 26px 28px 60px; }
+  .empty { margin: 12vh auto; max-width: 440px; text-align: center; color: var(--ink-3); }
+  .empty b { display: block; color: var(--ink); font-size: 20px; font-weight: 600; margin-bottom: 6px; letter-spacing: -.01em; }
+  .hero { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 22px; }
+  @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+  .shot { overflow: hidden; }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot .none { padding: 70px 24px; text-align: center; color: var(--ink-3); }
+  .shot .none b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 4px; }
+  .caption { display: flex; justify-content: space-between; gap: 12px; padding: 11px 16px; font-size: 12.5px;
+    color: var(--ink-3); border-top: 1px solid var(--line); }
+  .meta { padding: 20px 22px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .label { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px; }
+  .task { font-size: 17px; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; }
+  .page { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    background: var(--token-bg); color: var(--token-ink); margin-right: 6px; }
+  .action { font-size: 15px; overflow-wrap: anywhere; }
+  .action small { display: block; color: var(--ink-3); font-size: 12.5px; margin-top: 3px; }
+  .nums { display: flex; gap: 22px; }
+  .nums div { font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+  .nums span { display: block; font-size: 11.5px; font-weight: 500; color: var(--ink-3); letter-spacing: 0; }
+  .tokens { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tok { font-family: var(--mono); font-size: 12px; padding: 2px 7px; border-radius: 6px; background: var(--token-bg); color: var(--token-ink); }
+  details { border-top: 1px solid var(--line); padding-top: 14px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--ink-2); }
+  pre { margin: 10px 0 0; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+    font: 12.5px/1.6 var(--mono); color: var(--ink-2); }
+  h2 { font-size: 13px; font-weight: 600; color: var(--ink-3); letter-spacing: .04em; text-transform: uppercase; margin: 34px 0 10px; }
+  ol { list-style: none; margin: 0; padding: 0; }
+  li { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; gap: 14px; align-items: baseline;
+    padding: 11px 16px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  li:last-child { border-bottom: 0; }
+  li time { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  li .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li .who { color: var(--ink-3); font-size: 12.5px; }
+  li.rejected .what { color: var(--bad); font-weight: 600; }
+  footer { margin-top: 30px; text-align: center; font-size: 12.5px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6l-7-3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+  <div>
+    <h1>What the server sees</h1>
+    <p>Every step the planner receives, as it arrives. Values never reach this side — only tokens.</p>
+  </div>
+  <span class="pill" id="status" data-state="waiting"><i></i><span>Connecting…</span></span>
+</header>
+
+<main>
+  <section class="empty" id="empty">
+    <b>Waiting for the first step</b>
+    Run a task in the PrivAgent side panel. Steps the extension handles on the device never arrive here at all.
+  </section>
+
+  <section class="hero" id="hero" hidden>
+    <figure class="card shot" style="margin:0">
+      <img id="shot" alt="The screenshot as the server received it, after redaction">
+      <div class="none" id="noshot" hidden><b>No screenshot this step</b><span id="noshot-why"></span></div>
+      <figcaption class="caption"><span id="shot-caption"></span><span id="shot-size"></span></figcaption>
+    </figure>
+    <div class="card meta">
+      <div><div class="label">Task, as received</div><div class="task" id="task"></div></div>
+      <div><div class="label">Page</div><div class="page"><span class="badge" id="level"></span><span id="page"></span></div></div>
+      <div><div class="label">Decided</div><div class="action" id="action"></div></div>
+      <div class="nums" id="nums"></div>
+      <div><div class="label">Tokens it saw</div><div class="tokens" id="tokens"></div></div>
+      <details id="text-box"><summary>Screen text, as received</summary><pre id="text"></pre></details>
+    </div>
+  </section>
+
+  <h2 id="history-title" hidden>Recent steps</h2>
+  <div class="card" id="history-card" hidden><ol id="history"></ol></div>
+
+  <footer>Shown from this server's memory only; nothing here is written to disk. Off unless the server runs with PLANNER_VIEW=1.</footer>
+</main>
+
+<script>
+  // Every value below is set with textContent, never innerHTML: this page renders
+  // strings that came from other people's web pages.
+  const $ = (id) => document.getElementById(id);
+  const TOKEN = /(⟦[A-Z][A-Z0-9_.]*⟧)/g;
+  const LEVEL = { 0: 'L0 · nothing sent', 1: 'L1 · structure only', 2: 'L2 · redacted image + structure' };
+  const items = [];
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function describe(a) {
+    const target = a.element_id !== undefined ? ` element ${a.element_id}` : '';
+    switch (a.action) {
+      case 'type': return `type ${a.text ?? ''} into${target}`;
+      case 'select': return `choose “${a.option ?? ''}” in${target}`;
+      case 'click': return `click${target}`;
+      case 'scroll': return `scroll ${a.direction ?? 'down'}`;
+      case 'key': return `press ${a.key ?? 'Enter'} in${target}`;
+      case 'navigate': return `go to ${a.url ?? ''}`;
+      case 'ask_user': return `ask you: ${a.question ?? ''}`;
+      case 'done': return `done — ${a.summary ?? ''}`;
+      default: return a.action;
+    }
+  }
+
+  function withTokens(parent, text) {
+    parent.replaceChildren();
+    for (const part of (text || '').split(TOKEN)) {
+      if (!part) continue;
+      parent.append(TOKEN.test(part) ? el('span', 'tok', part) : document.createTextNode(part));
+      TOKEN.lastIndex = 0;
+    }
+  }
+
+  function showLatest(item) {
+    $('empty').hidden = true;
+    $('hero').hidden = false;
+    withTokens($('task'), item.task);
+    $('page').textContent = item.page;
+    $('level').textContent = LEVEL[item.disclosure] ?? `L${item.disclosure}`;
+
+    if (item.image) {
+      $('shot').src = `data:image/jpeg;base64,${item.image}`;
+      $('shot').hidden = false;
+      $('noshot').hidden = true;
+      $('shot-caption').textContent = 'Redacted on the device, before it was sent';
+      $('shot-size').textContent = `${Math.round(item.image.length * 0.75 / 1024)} KB`;
+    } else {
+      $('shot').hidden = true;
+      $('noshot').hidden = false;
+      $('noshot-why').textContent = item.disclosure < 2
+        ? 'The page was judged too sensitive for pixels, so only its structure was sent.'
+        : 'Structure and screen text only.';
+      $('shot-caption').textContent = '';
+      $('shot-size').textContent = '';
+    }
+
+    const a = item.action || {};
+    const action = $('action');
+    withTokens(action, describe(a));
+    const who = el('small', '', `${a.planner ?? 'planner'}${a.model ? ' · ' + a.model : ''}${a.reason ? ' — ' + a.reason : ''}`);
+    action.append(who);
+
+    const nums = $('nums');
+    nums.replaceChildren();
+    const t = item.timings || {};
+    const add = (value, label) => { const d = el('div', '', value); d.append(el('span', '', label)); nums.append(d); };
+    add(String(item.elements), 'elements');
+    add(String(item.redactions.length), 'redactions');
+    if (t.inference !== undefined) add(t.inference >= 1000 ? `${(t.inference / 1000).toFixed(1)} s` : `${Math.round(t.inference)} ms`, 'to decide');
+    if (t.prompt_tokens !== undefined) add(String(Math.round(t.prompt_tokens)), 'prompt tokens');
+
+    const tokens = $('tokens');
+    tokens.replaceChildren();
+    const seen = new Set(item.redactions.map((r) => r.token));
+    for (const m of JSON.stringify(a).matchAll(TOKEN)) seen.add(m[1]);
+    for (const k of item.profile_keys || []) seen.add(`⟦PROFILE.${k}⟧`);
+    if (seen.size === 0) tokens.append(el('span', 'page', 'none'));
+    for (const tok of seen) tokens.append(el('span', 'tok', tok));
+
+    $('text-box').hidden = !item.screen_text;
+    withTokens($('text'), item.screen_text || '');
+  }
+
+  function row(item) {
+    const li = el('li', item.kind === 'rejected' ? 'rejected' : '');
+    li.append(el('time', '', new Date(item.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })));
+    if (item.kind === 'rejected') {
+      const kinds = [...new Set(item.incidents.map((i) => i.type))].join(', ');
+      li.append(el('span', 'what', `Rejected on arrival — personal data in the payload (${kinds}). Nothing was forwarded.`));
+      li.append(el('span', 'who', 'server guard'));
+    } else {
+      const what = el('span', 'what');
+      withTokens(what, describe(item.action || {}));
+      li.append(what);
+      li.append(el('span', 'who', `L${item.disclosure} · ${(item.action && item.action.planner) || ''}`));
+    }
+    return li;
+  }
+
+  function render() {
+    const latest = [...items].reverse().find((i) => i.kind === 'step');
+    if (latest) showLatest(latest);
+    $('history-title').hidden = $('history-card').hidden = items.length === 0;
+    $('history').replaceChildren(...[...items].reverse().slice(0, 20).map(row));
+  }
+
+  function status(state, text) {
+    $('status').dataset.state = state;
+    $('status').querySelector('span').textContent = text;
+  }
+
+  fetch('/view/recent').then((r) => r.json()).then((list) => { items.push(...list); render(); }).catch(() => {});
+  const events = new EventSource('/view/events');
+  events.onopen = () => status('live', 'Live');
+  events.onerror = () => status('waiting', 'Reconnecting…');
+  events.onmessage = (e) => { items.push(JSON.parse(e.data)); if (items.length > 50) items.shift(); render(); };
+</script>
+</body>
+</html>

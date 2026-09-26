@@ -131,13 +131,21 @@ end to end on macOS here. The review's Windows failure was a copied `node_module
 The packed extension boots clean in **Brave** (`eval.smoke_extension --browser`). The
 trained detector is now committed: a clone used to run without it, silently.
 
-### Server hardening
+### Server hardening, and the other side of the wire
 
 CORS defaults to extension origins; optional `PLANNER_TOKEN`; body-size cap;
 per-client rate limit; Stop aborts the in-flight model call.
 
+`PLANNER_VIEW=1` turns on `/view`, a live page of every step the server receives —
+the redacted screenshot, the tokens, the screen text, the decision — for a second
+screen in a demo. It keeps the last 20 steps in memory only, holds nothing the
+planner did not already hold, and shows a rejected payload as its incident alone.
+
 ### Corrections
 
+- `server/.env` was documented everywhere — README, `.env.example`, the setup notes —
+  and read by nothing: a key put there was silently ignored. The package now loads it
+  at import, before any setting is read; a variable in the real environment still wins.
 - "Firefox has no WebGPU" (M8, D15) is out of date: Firefox shipped it on Windows in
   141 and on macOS in 145/147; Linux and Android are still behind a flag. The Firefox
   build stays WASM-only — it runs on every Firefox, and ORT's WebGPU backend is not
@@ -145,7 +153,7 @@ per-client rate limit; Stop aborts the in-flight model call.
 
 ### Numbers
 
-460 extension tests, 141 server tests, `npm run compile` clean.
+460 extension tests, 148 server tests, `npm run compile` clean.
 
 ---
 

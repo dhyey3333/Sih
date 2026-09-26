@@ -24,6 +24,22 @@
         "eval/tasks/pages"
       ],
       "port": 5188
+    },
+    {
+      "name": "planner-view",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PLANNER_VIEW=1",
+        "uv",
+        "run",
+        "--directory",
+        "server",
+        "uvicorn",
+        "app.main:app",
+        "--port",
+        "8123"
+      ],
+      "port": 8123
     }
   ]
 }

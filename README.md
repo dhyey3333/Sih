@@ -111,7 +111,7 @@ registration, a public helpline.
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
 | Handled with no request at all | **5 of 9 fields** (L0: the page declared the field, the vault had the value) |
-| Tests | 621 passing (460 extension, 141 server, 20 ml) |
+| Tests | 628 passing (460 extension, 148 server, 20 ml) |
 
 **On-device vision**, YuNet via onnxruntime-web:
 
@@ -222,6 +222,10 @@ Then, in the side panel, press **Load demo profile** and:
 
 To use a real model, copy `server/.env.example` to `server/.env` and point `VLM_BASE_URL` at any
 OpenAI-compatible endpoint (vLLM, Ollama, or a hosted open-weights model).
+
+**See the other side of the wire.** Start the server with `PLANNER_VIEW=1` and open
+`http://localhost:8000/view`: every step the server receives, as it arrives — the redacted
+screenshot, the tokens, the decision. Steps handled on the device never appear there at all.
 
 It works on any site, not just the demo pages — the DOM layer is generic, not per-site rules.
 
