@@ -115,7 +115,7 @@ const RULES: readonly Rule[] = [
     // more often than it says "account number". The 9–18 digit shape plus a 48-char
     // window is still narrow enough that the decoy order and reference numbers on
     // the eval pages do not trip it — that is what the precision column checks.
-    context: ['account number', 'account no', 'a/c', 'bank account', 'acct', 'account'],
+    context: ['account number', 'account no', 'a/c', 'bank account', 'acct', 'account', 'खाता'],
     confidence: 0.9,
   },
   {
@@ -123,42 +123,42 @@ const RULES: readonly Rule[] = [
     name: 'passport-in',
     // Q, X and Z are not issued as the first letter of an Indian passport number.
     pattern: /\b[A-PR-WY][0-9]{7}\b/g,
-    context: ['passport'],
+    context: ['passport', 'पासपोर्ट'],
     confidence: 0.9,
   },
   {
     type: 'DOB',
     name: 'dob-dmy',
     pattern: /(?<!\d)(?:0?[1-9]|[12]\d|3[01])[/\-.](?:0?[1-9]|1[0-2])[/\-.](?:19|20)\d{2}(?!\d)/g,
-    context: ['dob', 'date of birth', 'birth', 'born', 'birthday'],
+    context: ['dob', 'date of birth', 'birth', 'born', 'birthday', 'जन्म'],
     confidence: 0.9,
   },
   {
     type: 'DOB',
     name: 'dob-iso',
     pattern: /(?<!\d)(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?!\d)/g,
-    context: ['dob', 'date of birth', 'birth', 'born', 'birthday'],
+    context: ['dob', 'date of birth', 'birth', 'born', 'birthday', 'जन्म'],
     confidence: 0.9,
   },
   {
     type: 'CVV',
     name: 'cvv-context',
     pattern: /(?<!\d)\d{3,4}(?!\d)/g,
-    context: ['cvv', 'cvc', 'csc', 'security code', 'card code'],
+    context: ['cvv', 'cvc', 'csc', 'security code', 'card code', 'सीवीवी'],
     confidence: 0.88,
   },
   {
     type: 'OTP',
     name: 'otp-context',
     pattern: /(?<!\d)\d{4,8}(?!\d)/g,
-    context: ['otp', 'one-time', 'one time', 'verification code', 'auth code', 'passcode'],
+    context: ['otp', 'one-time', 'one time', 'verification code', 'auth code', 'passcode', 'ओटीपी', 'सत्यापन कोड'],
     confidence: 0.85,
   },
   {
     type: 'PINCODE',
     name: 'pincode-context',
     pattern: /(?<!\d)[1-9]\d{5}(?!\d)/g,
-    context: ['pin code', 'pincode', 'pin', 'postal', 'zip'],
+    context: ['pin code', 'pincode', 'pin', 'postal', 'zip', 'पिन', 'डाक'],
     confidence: 0.85,
   },
 ];

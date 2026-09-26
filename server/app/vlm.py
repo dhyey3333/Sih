@@ -44,6 +44,11 @@ class VLMConfig:
     #: ``{"reasoning": {"enabled": false}}`` (OpenRouter) or
     #: ``{"chat_template_kwargs": {"enable_thinking": false}}`` (vLLM, SGLang).
     extra_body: dict | None = None
+    #: When to attach the redacted screenshot: "always", "auto" or "never".
+    #: Measured on an 8 GB M1 with qwen2.5vl:3b, the image costs ~9 s a step and
+    #: text alone ~2-6 s. "auto" sends it only when the page has something the DOM
+    #: cannot describe — see `needs_image`.
+    image: str = "always"
 
     @property
     def configured(self) -> bool:
@@ -72,15 +77,40 @@ def load_config() -> VLMConfig:
         max_tokens=int(os.getenv("VLM_MAX_TOKENS", "1024")),
         json_mode=os.getenv("VLM_JSON_MODE", "1").lower() not in {"0", "false", "no"},
         extra_body=_extra_body_from_env(),
+        image=_image_policy_from_env(),
     )
 
 
-def _build_messages(request: StepRequest) -> list[dict]:
+def _image_policy_from_env() -> str:
+    value = os.getenv("VLM_IMAGE", "always").strip().lower()
+    if value not in {"always", "auto", "never"}:
+        raise SystemExit("VLM_IMAGE must be one of: always, auto, never")
+    return value
+
+
+def needs_image(request: StepRequest) -> bool:
+    """Whether the text half of this step leaves something only pixels can show.
+
+    The element list and the screen text describe a DOM page completely. They say
+    nothing about a control the vision layer found in pixels (a canvas app — ids
+    from 1000 up), about what is inside an image or a frame the DOM could not read
+    (a redaction from vision, OCR or an image hint), or about a page whose text
+    could not be sent at all.
+    """
+    if not request.visible_text:
+        return True
+    if any(e.id >= 1000 for e in request.elements):
+        return True
+    return any(r.source in {"vision", "ocr", "dom-image"} for r in request.redactions)
+
+
+def _build_messages(request: StepRequest, image: str = "always") -> list[dict]:
     content: list[dict] = [{"type": "text", "text": build_user_message(request)}]
 
     # Only at disclosure level 2, and it is the *redacted* JPEG — the extension
     # never produces an unredacted one for the wire.
-    if request.screen is not None:
+    attach = image == "always" or (image == "auto" and needs_image(request))
+    if request.screen is not None and attach:
         content.append(
             {
                 "type": "image_url",
@@ -178,7 +208,7 @@ async def decide(request: StepRequest, config: VLMConfig) -> StepResponse:
 
     body: dict = {
         "model": config.model,
-        "messages": _build_messages(request),
+        "messages": _build_messages(request, config.image),
         # Deterministic-ish: this is a control decision, not creative writing.
         "temperature": 0.1,
         "max_tokens": config.max_tokens,

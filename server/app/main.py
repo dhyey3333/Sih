@@ -25,9 +25,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import egress
-from .planner import plan
+from .planner import plan, search_query
 from .schemas import RejectedResponse, StepRequest, StepResponse
-from .vlm import VLMConfig, VLMError, decide, load_config
+from .vlm import VLMConfig, VLMError, decide, load_config, needs_image
 
 logger = logging.getLogger("privagent")
 
@@ -79,6 +79,7 @@ async def health() -> dict:
         "vlm_model": _config.model or None,
         "planner": "vlm" if _config.configured else "rule-based",
         "strategy": STRATEGY if _config.configured else None,
+        "image": _config.image if _config.configured else None,
     }
 
 
@@ -118,10 +119,20 @@ async def step(request: StepRequest, http_request: Request) -> JSONResponse:
 
     if _config.configured:
         certain = plan(request) if STRATEGY == "rules-first" else None
-        if certain is not None and certain.action == "type":
+        # What the rules are sure of: typing a profile value into a field of its
+        # type, a value the task itself states, and running a search the task
+        # spelled out. Every judgement call — a question, a choice nobody stated,
+        # whether the task is finished — goes to the model.
+        if certain is not None and (
+            certain.action in {"type", "select"} or (certain.action == "key" and search_query(request.task))
+        ):
             response = certain
         else:
             try:
+                timings["image_sent"] = float(
+                    request.screen is not None
+                    and (_config.image == "always" or (_config.image == "auto" and needs_image(request)))
+                )
                 response = await decide(request, _config)
             except VLMError as exc:
                 fallback_reason = str(exc)

@@ -16,7 +16,7 @@ import { DEMO_PROFILE } from '../../lib/demo-profile';
 import type { Detection, StageTimings, StepRequest } from '../../lib/protocol';
 import type { PipelineOutput } from '../../lib/pipeline';
 import { describeIncidents } from '../../lib/pii/egress';
-import { PROFILE_KEYS, Vault, type ProfileKey } from '../../lib/pii/vault';
+import { PROFILE_KEYS, TOKEN_PATTERN, Vault, type ProfileKey } from '../../lib/pii/vault';
 import { VisionLayer } from '../../lib/vision';
 
 const vault = new Vault();
@@ -92,6 +92,7 @@ const ui = {
   result: $('result'),
   resultTitle: $('result-title'),
   resultText: $('result-text'),
+  resultNote: $('result-note'),
   resultDismiss: $<HTMLButtonElement>('result-dismiss'),
 
   panelDetections: $<HTMLDetailsElement>('panel-detections'),
@@ -165,10 +166,21 @@ function showError(message: string | null): void {
  * into the collapsed Activity list, so a completed task looked like nothing had
  * happened at all.
  */
+/**
+ * The answer, as the user should read it. A question about their own data comes
+ * back naming a token — "Email ⟦PROFILE.EMAIL⟧" — because a token is all the server
+ * ever saw. The value goes back in here, on this device, and the note says so: the
+ * server answered a question about the user's email without learning it.
+ */
 function showResult(title: string, text: string, kind: 'done' | 'stopped' = 'done'): void {
   ui.result.dataset.kind = kind;
   ui.resultTitle.textContent = title;
-  ui.resultText.textContent = text;
+  const shown = vault.resolve(text);
+  ui.resultText.textContent = shown;
+  const tokens = [...new Set(text.match(TOKEN_PATTERN) ?? [])].filter((t) => vault.valueOf(t) !== undefined);
+  ui.resultNote.hidden = shown === text;
+  ui.resultNote.textContent =
+    shown === text ? '' : `The server saw only ${tokens.join(', ')}. Filled in here, on this device.`;
   ui.result.hidden = false;
 }
 

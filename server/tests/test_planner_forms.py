@@ -3,7 +3,7 @@ forms that start below the fold. Each was a place it used to stop and say "done"
 
 from __future__ import annotations
 
-from app.planner import answer_from_text, plan, search_query
+from app.planner import answer_from_text, plan, search_query, task_facts
 from app.schemas import StepRequest
 
 from .fixtures import element, sanitized_request
@@ -192,3 +192,75 @@ class TestCheckIsNotAlwaysAQuestion:
 
     def test_checking_a_status_is_a_question(self):
         assert plan(req(task="check my application status")).action == "done"
+
+
+class TestFactsInTheTask:
+    category = element(id=4, role="combobox", label="Category *", options=["General", "OBC", "SC", "ST"])
+
+    def test_parses_what_the_user_said(self):
+        assert task_facts("Fill this; my category is OBC and my gender is female.") == {
+            "category": "OBC", "gender": "female"}
+
+    def test_selects_a_stated_option_instead_of_asking(self):
+        r = plan(req(task="Fill the form, my category is OBC", elements=[self.category]))
+        assert r.action == "select" and r.element_id == 4 and r.option == "OBC"
+
+    def test_chooses_a_stated_radio(self):
+        r = plan(req(task="my gender is female", elements=[radio(1, "Female"), radio(2, "Male")]))
+        assert r.action == "select" and r.option == "female"
+
+    def test_a_stated_token_is_typed_as_a_token(self):
+        r = plan(req(task="Fill it in; my phone is ⟦PROFILE.PHONE⟧",
+                     elements=[element(id=3, label="Alternate phone")]))
+        assert r.action == "type" and r.text == "⟦PROFILE.PHONE⟧"
+
+    def test_leaves_a_filled_field_alone(self):
+        filled = element(id=4, role="combobox", label="Category", options=["OBC"], value="General", filled=True)
+        assert plan(req(task="my category is OBC", elements=[filled])).action != "select"
+
+
+class TestDeclarations:
+    declare = element(id=9, role="checkbox", label="I declare that the information given is true",
+                      required=True, checked=False)
+
+    def test_asks_before_ticking_it(self):
+        r = plan(req(elements=[self.declare]))
+        assert r.action == "ask_user" and r.element_id == 9 and r.question.startswith("Tick")
+
+    def test_asks_once(self):
+        r = plan(req(elements=[self.declare], history=[{"action": "click", "element_id": 9, "ok": True}]))
+        assert not (r.action == "ask_user" and r.element_id == 9)
+
+    def test_leaves_an_optional_box_alone(self):
+        optional = element(id=9, role="checkbox", label="Send me updates", checked=False)
+        r = plan(req(elements=[optional]))
+        assert not (r.action == "ask_user" and r.element_id == 9)
+
+
+class TestScrollingPanels:
+    def test_scrolls_when_everything_in_view_is_done(self):
+        r = plan(req(page={"origin": "https://demo.local", "path": "/apply", "title": "A", "more_below": True},
+                     elements=[element(id=1, label="Full name", sensitive="NAME", filled=True, value="⟦PROFILE.FULL_NAME⟧")]))
+        assert r.action == "scroll" and r.direction == "down"
+
+
+class TestHindi:
+    def test_a_hindi_submit_is_never_pressed_unasked(self):
+        r = plan(req(task="यह फ़ॉर्म भरें", elements=[element(id=5, role="button", text="जमा करें")]))
+        assert r.action == "ask_user" and r.element_id == 5
+
+    def test_a_hindi_stop_phrase_is_respected(self):
+        r = plan(req(task="फ़ॉर्म भरें, जमा न करें", elements=[element(id=5, role="button", text="जमा करें")]))
+        assert r.action == "done"
+
+
+class TestAnsweringAboutYourOwnData:
+    PROFILE_SCREEN = "My profile\nName\n⟦PROFILE.FULL_NAME⟧\nRegistered email\n⟦PROFILE.EMAIL⟧\nMember since\nMarch 2024"
+
+    def test_answers_with_the_token_for_the_client_to_fill_in(self):
+        # The server answers a question about the user's email without learning it.
+        assert answer_from_text("What email address is on my profile?", self.PROFILE_SCREEN) == \
+            "Registered email ⟦PROFILE.EMAIL⟧"
+
+    def test_a_complete_pair_is_not_extended(self):
+        assert answer_from_text("What is the status?", "Status: Approved\nNext steps") == "Status: Approved"

@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Statement of purpose</title>
+<link rel="stylesheet" href="task.css">
+<style>.editor{min-height:96px;border:1px solid #c9ced8;border-radius:8px;padding:10px;background:#fff}</style>
+</head><body>
+<header><b>ISRO Young Scientist Programme</b><small>Application · Statement</small></header>
+<main><form class="card" id="form" onsubmit="window.__submitted = true; return false">
+  <h2>About you</h2>
+  <label for="nm">Full name</label><input type="text" id="nm" autocomplete="name">
+  <label id="sop-label">Statement of purpose <span class="req">*</span></label>
+  <div class="editor" id="sop" contenteditable="true" role="textbox" aria-multiline="true"
+       aria-labelledby="sop-label" aria-required="true"></div>
+  <button type="submit">Submit application</button>
+</form></main>
+<script>
+  // A miniature rich-text editor. The document lives in a model and the DOM is
+  // redrawn from it. Like ProseMirror or Quill, it takes in what the browser's own
+  // editing did (a trusted input event) and discards anything written into the DOM
+  // behind its back — so text set with textContent vanishes on the next redraw,
+  // exactly as it does in the real ones.
+  const el = document.getElementById('sop');
+  window.__doc = '';
+  el.addEventListener('input', (e) => {
+    if (e.isTrusted) window.__doc = el.textContent;
+    el.textContent = window.__doc;
+  });
+</script></body></html>

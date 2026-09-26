@@ -373,6 +373,21 @@ export const IRREVERSIBLE_HINTS = [
   'register',
   'apply',
   'checkout',
+  // Hindi. Without these a "जमा करें" button on a Hindi portal walked straight past
+  // the confirmation gate. Over-gating is safe; under-gating is the whole risk.
+  'जमा', // submit / deposit
+  'सबमिट',
+  'भुगतान', // pay
+  'भेजें', // send
+  'हटाएं',
+  'हटाएँ', // delete
+  'पुष्टि', // confirm
+  'पंजीकरण', // register
+  'आवेदन करें', // apply
+  'खरीदें', // buy
+  'ऑर्डर',
+  'स्थानांतरण', // transfer
+  'निकासी', // withdraw
 ];
 
 /* ------------------------------------------------------------------ *

@@ -36,9 +36,14 @@ _TYPE_TO_PROFILE_KEY = {
 _IRREVERSIBLE = (
     "submit", "pay", "send", "delete", "remove", "confirm", "buy", "order",
     "transfer", "withdraw", "place order", "sign up", "register", "apply", "checkout",
+    "जमा", "सबमिट", "भुगतान", "भेजें", "हटाएं", "हटाएँ", "पुष्टि", "पंजीकरण", "आवेदन करें",
+    "खरीदें", "ऑर्डर", "स्थानांतरण", "निकासी",
 )
 
-_STOP_PHRASES = ("stop before", "don't submit", "do not submit", "without submitting")
+_STOP_PHRASES = (
+    "stop before", "don't submit", "do not submit", "without submitting",
+    "जमा न करें", "जमा मत करें", "सबमिट न करें", "सबमिट मत करें",
+)
 
 #: Tasks that ask to be *told* something rather than to have something done.
 #: Without this the form-filling path runs anyway and answers "Filled every field I
@@ -208,25 +213,45 @@ def answer_from_text(question: str, screen_text: str) -> str | None:
     value beside it) comes with it.
     """
     keywords = _words(question)
+    # Question order, for ties: the subject comes before its context — "what *email*
+    # is on my *profile*", "the *status* of my *application*".
+    order = {w: i for i, w in enumerate(dict.fromkeys(
+        w for w in (_words(t) for t in _WORD.findall(question.lower())) for w in w))}
     lines = [line.strip() for line in screen_text.splitlines() if line.strip() and line.strip() != "…"]
     if not keywords or not lines:
         return None
 
-    line_words = [_words(line) for line in lines]
+    # A token is a value, not words: "⟦PROFILE.EMAIL⟧" must not match the question "email".
+    line_words = [_words(re.sub(r"⟦[^⟧]*⟧", " ", line)) for line in lines]
     df = {k: sum(1 for words in line_words if k in words) for k in keywords}
 
     best, best_score = -1, 0.0
     for i, words in enumerate(line_words):
-        score = sum(1 / df[k] for k in keywords if k in words)
+        matched = [k for k in keywords if k in words]
+        score = sum(1 / df[k] for k in matched)
+        if matched:
+            score += 0.01 * (len(order) - min(order.get(k, len(order)) for k in matched))
         if score > best_score:
             best, best_score = i, score
     if best < 0:
         return None
 
     answer = lines[best]
-    if line_words[best] <= keywords and best + 1 < len(lines):
+    if best + 1 < len(lines) and (line_words[best] <= keywords or _is_label(answer, line_words[best])):
         answer = f"{answer} {lines[best + 1]}"
     return answer
+
+
+def _is_label(line: str, words: set[str]) -> bool:
+    """A few words with no value of their own: "Registered email", "Last date to apply".
+
+    Not "Status: Approved" — a colon with something after it is already the pair.
+    """
+    return (
+        len(words) <= 4
+        and not re.search(r"\d|⟦", line)
+        and not re.search(r":\s*\S", line)
+    )
 
 
 _SEARCH_TASK = re.compile(
@@ -275,6 +300,57 @@ def _search(request: StepRequest, query: str) -> StepResponse:
     )
 
 
+#: "my category is OBC", "my gender is female, my state is Maharashtra".
+#: A token is one unit of value, full stop and all: "⟦PROFILE.PHONE⟧" is not cut at its dot.
+_FACT = re.compile(
+    r"\bmy\s+([a-z][a-z ]{1,30}?)\s+is\s+((?:⟦[^⟧]*⟧|[^,;.⟦])+?)\s*(?=,|;|\.|\band\b|$)", re.IGNORECASE
+)
+
+
+def task_facts(task: str) -> dict[str, str]:
+    """Values the user stated in the task itself, keyed by what they are about.
+
+    The task is sanitized before it reaches us, so "my phone is 9812345678" arrives
+    as "my phone is ⟦PROFILE.PHONE⟧" and the value it yields is a token — typed
+    locally like any other, and never seen here.
+    """
+    return {m.group(1).strip().lower(): m.group(2).strip() for m in _FACT.finditer(task)}
+
+
+def _about(element: WireElement, subject: str) -> bool:
+    label = f"{element.label or ''} {element.placeholder or ''} {element.group or ''}".lower().replace("_", " ")
+    return bool(re.search(rf"\b{re.escape(subject)}\b", label))
+
+
+def _from_task(request: StepRequest) -> StepResponse | None:
+    """Fill a field with a value the task states, before asking about it or guessing."""
+    facts = task_facts(request.task)
+    if not facts:
+        return None
+    for subject, value in facts.items():
+        for element in request.elements:
+            if not _about(element, subject) or element.disabled:
+                continue
+            if _already_answered(request, element.id) or _repeated_failure(request, element.id):
+                continue
+            if element.role == "radio":
+                group = [e for e in request.elements if e.role == "radio" and e.group == element.group]
+                if any(e.checked for e in group):
+                    break
+            elif not _is_editable(element) or not _is_empty(element):
+                continue
+            is_choice = element.role == "radio" or bool(element.options)
+            return StepResponse(
+                action="select" if is_choice else "type",
+                element_id=element.id,
+                **({"option": value} if is_choice else {"text": value}),
+                reason=f"The task says your {subject} is {value}.",
+                confidence=0.9,
+                planner="rule-based",
+            )
+    return None
+
+
 def plan(request: StepRequest) -> StepResponse:
     """Decide the next action from the sanitized context alone."""
     available = set(request.profile_keys)
@@ -309,6 +385,12 @@ def plan(request: StepRequest) -> StepResponse:
     query = search_query(request.task)
     if query:
         return _search(request, query)
+
+    # 0c. Something the task itself states ("my category is OBC") wins over both the
+    #     profile and asking: it is the user's explicit instruction for this form.
+    stated = _from_task(request)
+    if stated is not None:
+        return stated
 
     # 1. Fill any empty sensitive field we hold a profile value for.
     for element in request.elements:
@@ -373,8 +455,30 @@ def plan(request: StepRequest) -> StepResponse:
             planner="rule-based",
         )
 
+    # 2c. A declaration the form requires — "I declare the information is true".
+    #     Never ticked on the user's behalf without asking: it is a statement made in
+    #     their name. Approval clicks it (lib/agent.ts).
+    for element in request.elements:
+        if element.role != "checkbox" or not element.required or element.checked or element.disabled:
+            continue
+        if _already_clicked(request, element.id) or _repeated_failure(request, element.id):
+            continue
+        if any(h.element_id == element.id and h.action == "ask_user" for h in _here(request)):
+            continue
+        return StepResponse(
+            action="ask_user",
+            element_id=element.id,
+            question=f"Tick “{element.label or f'checkbox {element.id}'}”? It is a declaration made in your name.",
+            reason="Required declaration; only the user can make it.",
+            confidence=0.85,
+            planner="rule-based",
+        )
+
     fill_task = not is_question and not any(phrase in task for phrase in _READ_ONLY_PHRASES)
-    fillable_in_view = any(_is_editable(e) for e in request.elements)
+    # "Nothing left to do in view" — not "nothing in view": a form in a scrolling
+    # panel shows its first fields filled and its last ones still out of sight.
+    fillable_in_view = any(_is_editable(e) and _is_empty(e) and not _already_typed(request, e.id)
+                           for e in request.elements)
     submit_in_view = any(e.role == "button" and _looks_irreversible(e) and not e.disabled for e in request.elements)
 
     # 2c. A wizard: this step is done, and the way on is a plain "Next". Not an

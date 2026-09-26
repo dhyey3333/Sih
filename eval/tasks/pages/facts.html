@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Reservation details</title>
+<link rel="stylesheet" href="task.css"></head><body>
+<header><b>National Scholarship Portal</b><small>Step 3 · Reservation details</small></header>
+<main><form class="card" id="form" onsubmit="window.__submitted = true; return false">
+  <h2>Reservation details</h2>
+  <label for="cand">Candidate name</label><input type="text" id="cand" autocomplete="name">
+  <label for="cat">Category <span class="req">*</span></label>
+  <select id="cat" required><option value="">Select</option><option>General</option><option>EWS</option>
+    <option>OBC</option><option>SC</option><option>ST</option></select>
+  <fieldset><legend>Person with disability? <span class="req">*</span></legend>
+    <label><input type="radio" name="disability" value="yes" required> Yes</label>
+    <label><input type="radio" name="disability" value="no" required> No</label></fieldset>
+  <button type="submit">Submit</button>
+</form></main></body></html>

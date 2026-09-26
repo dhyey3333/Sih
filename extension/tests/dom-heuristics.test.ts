@@ -164,3 +164,38 @@ describe('imageHint', () => {
     expect(imageHint('Product shot', 'hero', '/img/banner.jpg')).toBeNull();
   });
 });
+
+describe('Hindi labels', () => {
+  it.each([
+    ['नाम', 'NAME'],
+    ['पूरा नाम', 'NAME'],
+    ['आवेदक का नाम', 'NAME'],
+    ['पिता का नाम', 'NAME'],
+    ['ईमेल पता', 'EMAIL'], // an email address, not a postal one
+    ['ई-मेल', 'EMAIL'],
+    ['मोबाइल नंबर', 'PHONE'],
+    ['जन्म तिथि', 'DOB'],
+    ['पिन कोड', 'PINCODE'],
+    ['स्थायी पता', 'ADDRESS'],
+    ['आधार संख्या', 'AADHAAR'],
+    ['पैन नंबर', 'PAN'],
+    ['बैंक खाता संख्या', 'ACCOUNT'],
+    ['एक बार का पासवर्ड (ओटीपी)', 'OTP'],
+    ['वार्षिक आय', 'GENERIC'],
+  ])('reads "%s" as %s', (label, expected) => {
+    expect(classifyField(field({ type: 'text', label, id: 'f1' }))?.type).toBe(expected);
+  });
+
+  it.each([
+    'कंपनी का नाम', // company name
+    'विद्यालय का नाम', // school name
+    'आयु', // age — contains आय, but is not income
+    'टिप्पणी', // remarks
+  ])('leaves "%s" alone', (label) => {
+    expect(classifyField(field({ type: 'text', label }))).toBeNull();
+  });
+
+  it('prefers the English half of a bilingual label, and agrees with it', () => {
+    expect(classifyField(field({ type: 'text', label: 'Mobile Number / मोबाइल नंबर' }))?.reason).toBe('kw:phone');
+  });
+});

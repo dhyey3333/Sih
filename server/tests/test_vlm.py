@@ -136,3 +136,31 @@ class TestAnswerText:
 
     def test_empty_stays_empty(self):
         assert answer_text({"content": None}) == ""
+
+
+class TestImagePolicy:
+    def _req(self, **overrides):
+        payload = sanitized_request(**overrides)
+        payload["screen"] = {"image_jpeg_b64": "AAAA", "width": 10, "height": 10}
+        return StepRequest(**payload)
+
+    def _has_image(self, request, policy):
+        from app.vlm import _build_messages
+        return any(part["type"] == "image_url" for part in _build_messages(request, policy)[1]["content"])
+
+    def test_always_and_never_do_what_they_say(self):
+        req = self._req(visible_text="Status: Approved")
+        assert self._has_image(req, "always")
+        assert not self._has_image(req, "never")
+
+    def test_auto_leaves_out_what_the_text_already_says(self):
+        req = self._req(visible_text="Status: Approved", redactions=[])
+        assert not self._has_image(req, "auto")
+
+    def test_auto_sends_it_when_only_pixels_can_show_something(self):
+        assert self._has_image(self._req(), "auto")  # no screen text at all
+        assert self._has_image(self._req(visible_text="x", redactions=[
+            {"token": "⟦FACE_1⟧", "type": "FACE", "bbox": [0, 0, 5, 5], "source": "vision"}]), "auto")
+        from .fixtures import element
+        assert self._has_image(self._req(visible_text="x", redactions=[],
+                                         elements=[element(id=1004, role="button")]), "auto")

@@ -4,8 +4,26 @@
     {
       "name": "demo-site",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5173", "--directory", "demo-site"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5173",
+        "--directory",
+        "demo-site"
+      ],
       "port": 5173
+    },
+    {
+      "name": "task-pages",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5188",
+        "--directory",
+        "eval/tasks/pages"
+      ],
+      "port": 5188
     }
   ]
 }

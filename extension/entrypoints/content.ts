@@ -71,6 +71,43 @@ const isTextArea = (el: Element): el is HTMLTextAreaElement => el.tagName === 'T
 const isSelect = (el: Element): el is HTMLSelectElement => el.tagName === 'SELECT';
 
 /**
+ * The element that actually takes rich text: `el` itself, or — for a `role=textbox`
+ * wrapper around an editor — the contenteditable inside it.
+ */
+function editableHost(el: Element): HTMLElement | null {
+  const host = el as HTMLElement;
+  if (host.isContentEditable) return host;
+  return el.querySelector<HTMLElement>('[contenteditable]:not([contenteditable=false])');
+}
+
+/**
+ * Rich-text editors (ProseMirror, Quill, Draft.js, CKEditor) keep their own document
+ * model and redraw the DOM from it, so text set behind their back with `textContent`
+ * vanishes on their next render. `insertText` goes through the browser's own editing
+ * pipeline — `beforeinput`, then `input` — which is exactly what those editors listen
+ * to. Deprecated in name, still implemented everywhere, and the only way in that an
+ * editor treats as a person typing. `textContent` stays as the fallback for a plain
+ * contenteditable that refuses it.
+ */
+function typeIntoEditable(host: HTMLElement, text: string, replace: boolean): void {
+  const doc = host.ownerDocument;
+  host.focus({ preventScroll: true });
+  const selection = doc.getSelection();
+  if (selection) {
+    const range = doc.createRange();
+    range.selectNodeContents(host);
+    if (!replace) range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  const inserted = text !== '' && doc.execCommand('insertText', false, text);
+  if (!inserted) {
+    host.textContent = replace ? text : `${host.textContent ?? ''}${text}`;
+    dispatchInputEvents(host, text);
+  }
+}
+
+/**
  * React, Vue and friends track input state internally and ignore a plain
  * `el.value = x`. Going through the prototype's native setter updates the real
  * DOM value; the synthetic `input`/`change` events then let the framework observe
@@ -241,10 +278,8 @@ function executeAction(registry: Map<number, Element>, action: ResolvedAction): 
           // "2234 5678 9018" has changed the value too, and that one worked.
           throw new Error(`Element ${action.elementId} rejected the value for an input of type "${el.type}"`);
         }
-      } else if (el.getAttribute('contenteditable') !== null) {
-        (el as HTMLElement).textContent =
-          action.replace === false ? `${el.textContent ?? ''}${text}` : text;
-        dispatchInputEvents(el, text);
+      } else if (editableHost(el)) {
+        typeIntoEditable(editableHost(el)!, text, action.replace !== false);
       } else {
         throw new Error(`Element ${action.elementId} is not editable`);
       }

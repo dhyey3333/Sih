@@ -26,6 +26,17 @@ describe('isIrreversible — the gate that stops the agent pressing Submit', () 
     expect(isIrreversible(button({ text }))).toBe(true);
   });
 
+  it.each(['जमा करें', 'आवेदन जमा करें', 'भुगतान करें', 'संदेश भेजें', 'खाता हटाएं', 'पुष्टि करें', 'पंजीकरण'])(
+    'flags the Hindi "%s"',
+    (text) => {
+      expect(isIrreversible(button({ text }))).toBe(true);
+    },
+  );
+
+  it.each(['आगे', 'पीछे', 'रद्द करें'])('leaves the Hindi "%s" alone', (text) => {
+    expect(isIrreversible(button({ text }))).toBe(false);
+  });
+
   it('flags any input[type=submit], whatever its label says', () => {
     expect(isIrreversible(button({ type: 'submit', text: 'Continue' }))).toBe(true);
   });

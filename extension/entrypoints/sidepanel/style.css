@@ -875,6 +875,15 @@ svg { display: block; }
   overflow-wrap: break-word;
 }
 
+/* What the server actually said, when this card shows more than that. */
+.result__note {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
 .result__close {
   flex: none;
   width: 20px;

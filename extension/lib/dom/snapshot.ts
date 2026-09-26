@@ -84,6 +84,8 @@ export function buildSnapshot(options: SnapshotOptions = {}): DomSnapshot {
 
   const viewport = { w: window.innerWidth, h: window.innerHeight };
   const text = collectText(viewport, knownValues);
+  const nodes: Element[] = [];
+  const elements = collectElements(viewport, maxElements, registry, stableIds, nodes);
 
   return {
     url: location.href,
@@ -91,9 +93,8 @@ export function buildSnapshot(options: SnapshotOptions = {}): DomSnapshot {
     dpr: window.devicePixelRatio || 1,
     viewport,
     scroll: { x: window.scrollX, y: window.scrollY },
-    moreBelow: window.scrollY + window.innerHeight <
-      (document.scrollingElement ?? document.documentElement).scrollHeight - 24,
-    elements: collectElements(viewport, maxElements, registry, stableIds),
+    moreBelow: continuesBelow(nodes, viewport),
+    elements,
     textFindings: text.findings,
     visibleText: text.blocks,
     imageCandidates: collectImageCandidates(viewport, maxImages),
@@ -137,11 +138,37 @@ function descriptorFor(el: Element, label: string): FieldDescriptor {
   };
 }
 
+/**
+ * Whether there is more of the page to scroll to: the window, or a panel that
+ * scrolls on its own — a form in a fixed-height card, a modal, an app shell whose
+ * window never moves. Only ancestors of the controls on screen are checked, which
+ * is where a form's own scroll region is and keeps this cheap on a large page.
+ */
+function continuesBelow(nodes: Element[], viewport: { w: number; h: number }): boolean {
+  const page = document.scrollingElement ?? document.documentElement;
+  if (window.scrollY + window.innerHeight < page.scrollHeight - 24) return true;
+
+  const checked = new Set<Element>();
+  for (const node of nodes) {
+    for (let el = node.parentElement; el && !checked.has(el); el = el.parentElement) {
+      checked.add(el);
+      // Layout reads first; the style lookup only for something that overflows.
+      if (el.scrollHeight <= el.clientHeight + 24) continue;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) continue;
+      if (el.clientHeight < viewport.h * 0.15) continue; // a small list, not the page's content
+      const style = el.ownerDocument.defaultView?.getComputedStyle(el);
+      if (style && /(auto|scroll|overlay)/.test(style.overflowY)) return true;
+    }
+  }
+  return false;
+}
+
 function collectElements(
   viewport: { w: number; h: number },
   maxElements: number,
   registry?: Map<number, Element>,
   stableIds?: StableIds,
+  nodes?: Element[],
 ): PageElement[] {
   const out: PageElement[] = [];
   let nextId = 1;
@@ -179,7 +206,9 @@ function collectElements(
     if (input.type) element.type = input.type;
     if (input.placeholder) element.placeholder = input.placeholder;
     if (input.disabled) element.disabled = true;
-    if (input.required) element.required = true;
+    // aria-required too: a rich-text editor or a custom combobox has no `required`
+    // property, and ARIA is how it says the same thing.
+    if (input.required || el.getAttribute('aria-required') === 'true') element.required = true;
     if (typeof input.checked === 'boolean' && (input.type === 'checkbox' || input.type === 'radio')) {
       element.checked = input.checked;
     }
@@ -227,6 +256,7 @@ function collectElements(
     }
 
     registry?.set(id, el);
+    nodes?.push(el);
     out.push(element);
   }
 

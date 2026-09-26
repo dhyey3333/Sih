@@ -125,6 +125,62 @@ const KEYWORD_RULES: readonly KeywordRule[] = [
   { type: 'GENERIC', name: 'kw:sensitive', pattern: /\b(salary|income|ssn|social\s*security|tax\s*id|gstin|voter\s*id|driving\s*licen[sc]e|licence\s*number|nominee|blood\s*group|pin\b)\b/, confidence: 0.8 },
 ];
 
+/**
+ * A whole Devanagari word or phrase. `\b` is useless here: JS regex word
+ * characters are ASCII, so `\b` sees a boundary between every Hindi letter and its
+ * vowel sign. Lookarounds on the Devanagari block do what `\b` does for English.
+ */
+const hi = (alternatives: string): RegExp =>
+  new RegExp(`(?<![\\u0900-\\u097F])(?:${alternatives})(?![\\u0900-\\u097F])`);
+
+/**
+ * Hindi labels, for the forms of a country whose government portals are bilingual
+ * and whose state portals are often Hindi only. Checked after the English rules, so
+ * "Email / ईमेल" resolves the same way either half would.
+ *
+ * Order matters as it does above: OTP before password ("एक बार का पासवर्ड" is an
+ * OTP), email before address ("ईमेल पता" is an email address, not a postal one).
+ */
+const HINDI_RULES: readonly KeywordRule[] = [
+  { type: 'OTP', name: 'kw:otp-hi', pattern: hi('ओटीपी|एक बार का पासवर्ड|सत्यापन कोड'), confidence: 0.94 },
+  { type: 'PASSWORD', name: 'kw:password-hi', pattern: hi('पासवर्ड|कूटशब्द'), confidence: 0.97 },
+  { type: 'AADHAAR', name: 'kw:aadhaar-hi', pattern: hi('आधार'), confidence: 0.95 },
+  { type: 'PAN', name: 'kw:pan-hi', pattern: hi('पैन|स्थायी खाता संख्या'), confidence: 0.94 },
+  { type: 'PASSPORT', name: 'kw:passport-hi', pattern: hi('पासपोर्ट'), confidence: 0.95 },
+  { type: 'CVV', name: 'kw:cvv-hi', pattern: hi('सीवीवी'), confidence: 0.96 },
+  { type: 'CARD', name: 'kw:card-hi', pattern: hi('(?:क्रेडिट|डेबिट|एटीएम)\\s*कार्ड|कार्ड\\s*(?:संख्या|नंबर|नम्बर)'), confidence: 0.94 },
+  { type: 'IFSC', name: 'kw:ifsc-hi', pattern: hi('आईएफएससी'), confidence: 0.95 },
+  { type: 'UPI', name: 'kw:upi-hi', pattern: hi('यूपीआई'), confidence: 0.94 },
+  { type: 'ACCOUNT', name: 'kw:account-hi', pattern: hi('(?:बैंक\\s*)?खाता\\s*(?:संख्या|नंबर|नम्बर|क्रमांक)|बैंक खाता'), confidence: 0.94 },
+  { type: 'EMAIL', name: 'kw:email-hi', pattern: hi('ई\\s*मेल'), confidence: 0.95 },
+  { type: 'PHONE', name: 'kw:phone-hi', pattern: hi('मोबाइल|मोबाईल|फ़ोन|फोन|दूरभाष|संपर्क\\s*(?:नंबर|संख्या|सूत्र)'), confidence: 0.94 },
+  { type: 'DOB', name: 'kw:dob-hi', pattern: hi('जन्म\\s*(?:तिथि|तारीख|दिनांक)|जन्मतिथि|जन्म की तारीख'), confidence: 0.94 },
+  { type: 'PINCODE', name: 'kw:pincode-hi', pattern: hi('पिन\\s*कोड|पिनकोड|डाक\\s*सूचकांक'), confidence: 0.92 },
+  { type: 'ADDRESS', name: 'kw:address-hi', pattern: hi('पता|गली|मोहल्ला|शहर|जिला|ज़िला|गाँव|गांव|निवास'), confidence: 0.88 },
+  {
+    type: 'NAME',
+    name: 'kw:name-hi',
+    // A person's name, however the form phrases it. "कंपनी का नाम" (company name)
+    // and "विद्यालय का नाम" (school name) are not, which is why a bare "X का नाम"
+    // only counts when X is a person — see `isPersonName`.
+    pattern: hi('नाम|उपनाम'),
+    confidence: 0.88,
+  },
+  { type: 'GENERIC', name: 'kw:sensitive-hi', pattern: hi('वेतन|आय|मतदाता पहचान पत्र|ड्राइविंग लाइसेंस|रक्त समूह|नामांकित'), confidence: 0.8 },
+];
+
+/** Who "X का नाम" can be about and still be a person's name. */
+const HINDI_PERSON = hi(
+  '(?:आवेदक|उम्मीदवार|अभ्यर्थी|छात्र|छात्रा|विद्यार्थी|पिता|माता|पति|पत्नी|अभिभावक|नामांकित व्यक्ति|लाभार्थी|कर्मचारी|यात्री|सदस्य|धारक)\\s*(?:का|की|के)\\s*नाम',
+);
+
+function isPersonName(context: string): boolean {
+  if (HINDI_PERSON.test(context)) return true;
+  // Bare "नाम", "पूरा नाम", "प्रथम नाम" — anything but "<thing> का नाम".
+  const at = context.search(hi('नाम'));
+  return at >= 0 && !/(?:का|की|के)\s*$/.test(context.slice(0, at));
+}
+
 /** Field types that never hold PII, whatever the label says. */
 const INERT_INPUT_TYPES = new Set([
   'submit', 'button', 'reset', 'image', 'file', 'range', 'color', 'checkbox', 'radio',
@@ -180,6 +236,12 @@ export function classifyField(f: FieldDescriptor): FieldClassification | null {
     if (rule.pattern.test(context)) {
       return { type: rule.type, reason: rule.name, confidence: rule.confidence };
     }
+  }
+
+  for (const rule of HINDI_RULES) {
+    if (!rule.pattern.test(context)) continue;
+    if (rule.type === 'NAME' && !isPersonName(context)) continue;
+    return { type: rule.type, reason: rule.name, confidence: rule.confidence };
   }
 
   return null;
