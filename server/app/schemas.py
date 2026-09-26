@@ -62,6 +62,8 @@ class Page(BaseModel):
     origin: str
     path: str
     title: str = ""
+    #: The page continues below the fold.
+    more_below: bool = False
 
 
 class Screen(BaseModel):
@@ -84,6 +86,8 @@ class WireElement(BaseModel):
     disabled: bool | None = None
     required: bool | None = None
     checked: bool | None = None
+    #: A radio button's group (its ``name``), so a group is asked about as one.
+    group: str | None = None
     sensitive: PiiType | None = None
     #: Whether a sensitive field already has content. Passwords have this and no value.
     filled: bool | None = None
@@ -98,6 +102,9 @@ class WireRedaction(BaseModel):
 
 class HistoryEntry(BaseModel):
     action: str
+    #: Origin + path of the page the step was taken on. Element ids are stable only
+    #: within a page, so history from another page never matches an id here.
+    page: str | None = None
     element_id: int | None = None
     text: str | None = None
     ok: bool
@@ -138,6 +145,8 @@ class StepResponse(BaseModel):
     confidence: float | None = None
     #: Which path produced this action, so the UI can show it honestly.
     planner: Literal["vlm", "rule-based"] = "rule-based"
+    #: The model that decided, when one did — so each step names its weights.
+    model: str | None = None
     #: Server-side timing, for the client's full latency breakdown.
     timings: dict[str, float] = Field(default_factory=dict)
 

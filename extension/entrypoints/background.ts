@@ -38,9 +38,24 @@ export default defineBackground(() => {
     });
   }
 
-  browser.action?.onClicked?.addListener(() => {
+  browser.action?.onClicked?.addListener((tab) => {
     const sidebarAction = (browser as { sidebarAction?: { toggle?: () => void } }).sidebarAction;
-    sidebarAction?.toggle?.();
+    if (sidebarAction?.toggle) {
+      sidebarAction.toggle();
+      return;
+    }
+    // Neither a side panel (Chrome, Edge, Brave) nor a sidebar (Firefox): Opera, and
+    // any Chromium fork that dropped the API. Open the same panel as a window beside
+    // the page, pinned to the tab it was opened from, so the agent acts on the page
+    // and not on its own window.
+    if (!sidePanel?.setPanelBehavior && tab?.id !== undefined) {
+      void browser.windows.create({
+        url: browser.runtime.getURL(`/sidepanel.html?tab=${tab.id}`),
+        type: 'popup',
+        width: 440,
+        height: 860,
+      });
+    }
   });
 
   browser.runtime.onMessage.addListener((message: BackgroundRequest) => {
@@ -54,6 +69,11 @@ export default defineBackground(() => {
       case 'activeTab':
         return activeTab().then(ok).catch(fail);
       case 'navigate':
+        // "back" is the browser's own history step: it keeps whatever the page's
+        // back-navigation keeps, which a reload of the previous URL would not.
+        if (message.url === 'back') {
+          return browser.tabs.goBack(message.tabId).then(() => ok({ url: 'back' })).catch(fail);
+        }
         return browser.tabs
           .update(message.tabId, { url: message.url })
           .then(() => ok({ url: message.url }))

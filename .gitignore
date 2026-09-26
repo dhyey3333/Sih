@@ -39,6 +39,7 @@ ml/runs/
 # Eval output: the JSON is regenerated noise, but RESULTS.md is the report
 # judges read, so it stays tracked.
 eval/results/results.json
+eval/results/tasks-*.json
 
 # Per-user Claude Code settings (launch.json is shared and stays tracked)
 .claude/settings.local.json

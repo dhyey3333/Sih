@@ -143,6 +143,8 @@ export interface PageElement {
   disabled?: boolean;
   required?: boolean;
   checked?: boolean;
+  /** A radio button's group (its `name`). Page structure, not personal data. */
+  group?: string;
   /** Set by the DOM heuristics layer when this field holds sensitive data. */
   sensitive?: PiiType;
   /** Why we called it sensitive — a rule name, never a value. */
@@ -173,6 +175,8 @@ export interface DomSnapshot {
   dpr: number;
   viewport: { w: number; h: number };
   scroll: { x: number; y: number };
+  /** Whether the page continues below the fold — so "nothing to fill here" can mean "scroll". */
+  moreBelow?: boolean;
   elements: PageElement[];
   textFindings: TextFinding[];
   imageCandidates: ImageCandidate[];
@@ -234,6 +238,8 @@ export interface WireElement {
   disabled?: boolean;
   required?: boolean;
   checked?: boolean;
+  /** A radio button's group, so a group can be asked about and answered as one. */
+  group?: string;
   /** Present when the field is known to hold sensitive data. */
   sensitive?: PiiType;
   /**
@@ -253,6 +259,12 @@ export interface WireRedaction {
 
 export interface HistoryEntry {
   action: string;
+  /**
+   * Origin + path of the page the step was taken on. Element ids are stable only
+   * within a page, so "already typed into 3" must never be matched against the
+   * field numbered 3 on the next page.
+   */
+  page?: string;
   element_id?: number;
   /** Tokenized. */
   text?: string;
@@ -266,7 +278,7 @@ export interface StepRequest {
   step: number;
   disclosure_level: DisclosureLevel;
   /** Origin + path only. Query strings and fragments are stripped (CLAUDE.md). */
-  page: { origin: string; path: string; title: string };
+  page: { origin: string; path: string; title: string; more_below?: boolean };
   /** Omitted at L0/L1. */
   screen?: { image_jpeg_b64: string; width: number; height: number };
   elements: WireElement[];
@@ -304,6 +316,11 @@ export interface StepResponse {
   summary?: string;
   reason?: string;
   confidence?: number;
+  /**
+   * The model that decided, when a model did (e.g. "qwen2.5vl:3b"). Shown in the
+   * activity log beside `planner`, so a judge can see which weights chose each step.
+   */
+  model?: string;
   /**
    * Which path produced this action. Shown in the UI so a rule-based fallback is
    * never mistaken for the model reasoning.

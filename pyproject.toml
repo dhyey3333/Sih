@@ -7,6 +7,9 @@ dependencies = [
     # Drives a real browser so the harness measures the same code that ships,
     # rather than a reimplementation of it.
     "playwright>=1.48",
+    # CPU time and memory of the browser process tree during a task: the part of
+    # "client-side resource utilisation" that a download size does not measure.
+    "psutil>=7.2.2",
 ]
 
 [dependency-groups]

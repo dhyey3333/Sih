@@ -152,6 +152,15 @@ export class Vault {
   }
 
   /**
+   * The kind of value a token stands for. Known only here, on the device — the
+   * server chooses tokens but cannot lie about what they are, which is what lets
+   * lib/type-gate.ts refuse to put an Aadhaar number into a search box.
+   */
+  typeOf(token: string): PiiType | undefined {
+    return this.entries.get(token)?.type;
+  }
+
+  /**
    * Swap every known token in `text` for its real value. Called on the action the
    * server returned, in the extension, right before the content script types it.
    *

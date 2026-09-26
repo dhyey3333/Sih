@@ -62,6 +62,15 @@ app.add_middleware(
 )
 
 
+#: How the VLM and the rules share the work.
+#:   vlm-first    the model decides every step; rules only when it fails (default)
+#:   rules-first  rules take the steps they are certain of — an empty field the
+#:                profile can fill — and the model takes every judgement call
+#: rules-first is the fast mode for a small local model: form bookkeeping costs no
+#: inference, and the model is spent where reasoning actually happens.
+STRATEGY = os.getenv("VLM_STRATEGY", "vlm-first").strip().lower()
+
+
 @app.get("/health")
 async def health() -> dict:
     return {
@@ -69,6 +78,7 @@ async def health() -> dict:
         "vlm_configured": _config.configured,
         "vlm_model": _config.model or None,
         "planner": "vlm" if _config.configured else "rule-based",
+        "strategy": STRATEGY if _config.configured else None,
     }
 
 
@@ -107,12 +117,16 @@ async def step(request: StepRequest, http_request: Request) -> JSONResponse:
     fallback_reason: str | None = None
 
     if _config.configured:
-        try:
-            response = await decide(request, _config)
-        except VLMError as exc:
-            fallback_reason = str(exc)
-            logger.warning("VLM unavailable, falling back: %s", fallback_reason)
-            response = plan(request)
+        certain = plan(request) if STRATEGY == "rules-first" else None
+        if certain is not None and certain.action == "type":
+            response = certain
+        else:
+            try:
+                response = await decide(request, _config)
+            except VLMError as exc:
+                fallback_reason = str(exc)
+                logger.warning("VLM unavailable, falling back: %s", fallback_reason)
+                response = certain or plan(request)
     else:
         response = plan(request)
 

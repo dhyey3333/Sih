@@ -11,7 +11,7 @@ import pytest
 
 from app.prompt import SYSTEM_PROMPT, build_user_message
 from app.schemas import StepRequest
-from app.vlm import VLMError, parse_action
+from app.vlm import VLMError, answer_text, parse_action
 
 from .fixtures import FAKE, sanitized_request
 
@@ -98,3 +98,26 @@ class TestFallback:
         )
         with pytest.raises(VLMError):
             await decide(StepRequest(**sanitized_request()), config)
+
+
+
+class TestAnswerText:
+    """Reasoning models hide the answer three different ways; all three are handled."""
+
+    def test_strips_inline_reasoning(self):
+        msg = {"content": '<think>field 1 is empty</think>{"action": "done", "summary": "x"}'}
+        assert answer_text(msg) == '{"action": "done", "summary": "x"}'
+
+    def test_drops_an_unterminated_think_when_the_budget_ran_out(self):
+        assert answer_text({"content": "<think>still reasoning when the tokens ran out"}) == ""
+
+    def test_falls_back_to_a_separate_reasoning_field(self):
+        msg = {"content": "", "reasoning_content": 'so: {"action": "done", "summary": "x"}'}
+        assert parse_action(answer_text(msg))["action"] == "done"
+
+    def test_reads_content_parts(self):
+        msg = {"content": [{"type": "text", "text": '{"action": "done", "summary": "x"}'}]}
+        assert parse_action(answer_text(msg))["action"] == "done"
+
+    def test_empty_stays_empty(self):
+        assert answer_text({"content": None}) == ""

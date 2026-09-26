@@ -150,7 +150,11 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     ...snapshot.elements.map((el) => toWireElement(el, vault)),
     ...(input.visionElements ?? []).map(toWireVisionElement),
   ];
-  const page = { ...sanitizeUrl(snapshot.url), title: sanitizeText(snapshot.title, vault).text };
+  const page = {
+    ...sanitizeUrl(snapshot.url),
+    title: sanitizeText(snapshot.title, vault).text,
+    ...(snapshot.moreBelow ? { more_below: true } : {}),
+  };
   const redactions: WireRedaction[] = detections.map((d) => ({
     token: d.token,
     type: d.type,
@@ -306,6 +310,7 @@ function toWireElement(el: PageElement, vault: Vault): WireElement {
   if (el.disabled) wire.disabled = true;
   if (el.required) wire.required = true;
   if (el.checked !== undefined) wire.checked = el.checked;
+  if (el.group) wire.group = sanitizeText(el.group, vault).text;
   if (el.options) wire.options = el.options.map((o) => sanitizeText(clampLabel(o, 60) ?? '', vault).text);
   if (el.sensitive) wire.sensitive = el.sensitive;
 

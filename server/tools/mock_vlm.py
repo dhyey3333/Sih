@@ -34,6 +34,7 @@ import time
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="Mock open-weights VLM", version="1.0.0")
@@ -183,9 +184,18 @@ async def models() -> dict:
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: ChatRequest) -> dict:
+async def chat_completions(request: ChatRequest):
+    # Two misbehaviours real providers have, selectable by model name so the live
+    # tests can exercise the client's handling of each:
+    #   mock-strict    rejects JSON mode with HTTP 400, as some providers do per-model
+    #   mock-thinking  reasons out loud in <think>…</think> before answering
+    if request.model == "mock-strict" and request.response_format is not None:
+        return JSONResponse(status_code=400, content={"error": "response_format not supported"})
+
     text = _user_text(request.messages)
     content = _reply_text(_decide(text))
+    if request.model == "mock-thinking":
+        content = "<think>The page lists its fields; the first empty one is the name.</think>\n" + content
     return {
         "id": "chatcmpl-mock",
         "object": "chat.completion",

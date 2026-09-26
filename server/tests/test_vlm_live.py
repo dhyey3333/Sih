@@ -156,3 +156,32 @@ class TestLiveRoundTrip:
 def response_text(body: dict) -> str:
     """Every string the server sent back, for a "no raw value" assertion."""
     return " ".join(str(value) for value in body.values())
+
+
+class TestRealProviderQuirks:
+    """What real providers actually send back, over the same real socket."""
+
+    @pytest.fixture
+    def client_for(self, vlm_url: str, monkeypatch: pytest.MonkeyPatch):
+        def make(model: str) -> TestClient:
+            monkeypatch.setenv("VLM_BASE_URL", vlm_url)
+            monkeypatch.setenv("VLM_MODEL", model)
+            from app.main import app as real_app
+            return TestClient(real_app)
+        return make
+
+    def test_a_thinking_model_still_decides(self, client_for):
+        with client_for("mock-thinking") as c:
+            body = c.post("/v1/step", json=sanitized_request()).json()
+        assert body["planner"] == "vlm"
+        assert body["action"] == "type"
+
+    def test_a_provider_that_rejects_json_mode_is_retried_without_it(self, client_for):
+        with client_for("mock-strict") as c:
+            body = c.post("/v1/step", json=sanitized_request()).json()
+        assert body["planner"] == "vlm", body.get("reason")
+
+    def test_every_model_decision_names_its_model(self, client_for):
+        with client_for("mock-vl") as c:
+            body = c.post("/v1/step", json=sanitized_request()).json()
+        assert body["model"] == "mock-vl"

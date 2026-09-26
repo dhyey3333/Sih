@@ -14,12 +14,21 @@
  *      is told not to try, but the client is what enforces it.
  *   3. **Step budget.** A bounded number of steps, so a confused model cannot
  *      loop on a page forever.
+ *   4. **Value-to-field matching** (lib/type-gate.ts). A real value is only typed
+ *      into a field detected as asking for that kind of value. A page that talks the
+ *      model into "type the Aadhaar into this search box" gets a question put to the
+ *      user, not the user's Aadhaar number.
+ *
+ * And two rules about where the agent may go: it navigates within the site it is
+ * on without asking, and anywhere else only with the user's say-so; and it never
+ * resolves a token inside a URL, so a model cannot smuggle a value out in a link.
  */
 
 import { DEMO_PROFILE } from './demo-profile';
 import { planLocally } from './local-planner';
 import { sendToBackground, type ActionResult, type PerceiveResult, type ResolvedAction } from './messaging';
 import { runPipeline, type PipelineOutput } from './pipeline';
+import { checkValueTarget, friendlyType } from './type-gate';
 import {
   IRREVERSIBLE_HINTS,
   type HistoryEntry,
@@ -27,7 +36,7 @@ import {
   type StepResponse,
   type WireElement,
 } from './protocol';
-import type { Vault } from './pii/vault';
+import { TOKEN_PATTERN, type Vault } from './pii/vault';
 import { loadImage } from './redact/render';
 import type { VisionLayer } from './vision';
 import { VISION_ID_BASE, type VisionElement } from './vision/ui-detector';
@@ -51,6 +60,12 @@ export interface AgentOptions {
    * embeds). On by default — see `detectionsFromOpaqueFrames`.
    */
   coverFrames?: boolean;
+  /**
+   * Act on this tab rather than "the active tab of the panel's window". Set when the
+   * panel runs in its own window (browsers with no side panel, like Opera — and the
+   * task benchmark), where the active tab of *that* window is the panel itself.
+   */
+  targetTabId?: number;
 }
 
 export interface StepReport {
@@ -70,6 +85,34 @@ export interface AgentCallbacks {
   onStep: (report: StepReport) => void;
   /** Resolve true to proceed with an irreversible action. */
   confirm: (question: string) => Promise<boolean>;
+  /**
+   * Ask the user for a value the agent needs and the profile does not hold.
+   * Resolves to the answer, or null if they declined. The answer is typed locally
+   * and never sent: a sensitive field's answer goes on the wire only as a token.
+   */
+  ask?: (question: string, field: { label?: string; options?: string[] }) => Promise<string | null>;
+}
+
+/** A field a person could type or pick an answer into. Never a password. */
+function isFillable(el: WireElement | undefined): el is WireElement {
+  if (!el || el.disabled || el.type === 'password') return false;
+  return ['textbox', 'searchbox', 'combobox', 'spinbutton', 'radio'].includes(el.role);
+}
+
+/** What a question about `el` can be answered with: a dropdown's options, or a radio group's labels. */
+function answerOptions(el: WireElement, all: WireElement[]): string[] | undefined {
+  if (el.role === 'radio') {
+    const labels = all.filter((e) => e.role === 'radio' && e.group === el.group).map((e) => e.label ?? '');
+    return labels.filter(Boolean);
+  }
+  return el.options;
+}
+
+/** Would pressing Enter here submit something? Everything except a search box. */
+function enterSubmits(el: WireElement | undefined): boolean {
+  if (!el) return true;
+  if (el.role === 'searchbox' || el.type === 'search') return false;
+  return !/\bsearch\b|खोज/i.test(`${el.label ?? ''} ${el.placeholder ?? ''}`);
 }
 
 export class AgentStopped extends Error {
@@ -89,6 +132,13 @@ export class Agent {
   private visionElements: VisionElement[] = [];
   /** Element ids already acted on, so the local planner never loops on one. */
   private readonly attempted = new Set<number>();
+  /** The page those ids belong to. A different page means different elements. */
+  private pageKey = '';
+
+  /** Record a step, tagged with the page it happened on. */
+  private remember(entry: HistoryEntry): void {
+    this.history.push({ ...entry, page: this.pageKey });
+  }
 
   constructor(
     private readonly vault: Vault,
@@ -115,6 +165,7 @@ export class Agent {
   async perceiveOnly(task: string, step = 0): Promise<PipelineOutput> {
     const perceived = await sendToBackground<PerceiveResult>({
       kind: 'perceive',
+      tabId: this.options.targetTabId,
       knownValues: this.vault.needles(),
     });
     return this.sanitize(perceived, task, step);
@@ -131,12 +182,20 @@ export class Agent {
         callbacks.onStatus('busy', `step ${step + 1}: reading page…`);
         const perceived = await sendToBackground<PerceiveResult>({
           kind: 'perceive',
+          tabId: this.options.targetTabId,
           knownValues: this.vault.needles(),
         });
         this.throwIfStopped();
 
         const output = await this.sanitize(perceived, task, step);
         callbacks.onPerceived(output);
+
+        // A new page means new elements: ids from the last one mean nothing here.
+        const here = `${output.request.page.origin}${output.request.page.path}`;
+        if (here !== this.pageKey) {
+          this.pageKey = here;
+          this.attempted.clear();
+        }
 
         if (!output.egress.ok) {
           callbacks.onStatus('err', 'egress blocked');
@@ -153,6 +212,7 @@ export class Agent {
               elements: perceived.snapshot.elements,
               vault: this.vault,
               attempted: this.attempted,
+              alreadyScrolled: this.history.some((h) => h.action === 'scroll' && h.ok && h.page === this.pageKey),
             });
 
         let response: StepResponse;
@@ -174,9 +234,9 @@ export class Agent {
 
         const report: StepReport = { step, output, response, networkMs: output.timings.network ?? 0 };
         if (!local) {
+          const who = `${response.planner ?? 'server'}${response.model ? ` · ${response.model}` : ''}`;
           callbacks.onLog(
-            `${response.planner ?? 'server'} → ${describeAction(response)}` +
-              (response.reason ? ` — ${response.reason}` : ''),
+            `${who} → ${describeAction(response)}` + (response.reason ? ` — ${response.reason}` : ''),
           );
         }
 
@@ -190,23 +250,72 @@ export class Agent {
         if (response.action === 'ask_user') {
           callbacks.onStep(report);
           const question = response.question ?? 'The agent needs your input.';
+          const target = output.request.elements.find((e) => e.id === response.element_id);
+
+          // A question about a field is a request for a *value*: collect it here,
+          // type it here, and keep it off the wire. (It used to be a Continue/Stop
+          // sheet whose Continue clicked the field — a dead end on every required
+          // field the profile did not cover.) A question about a button is a
+          // request for consent, and keeps the old path below.
+          if (isFillable(target) && callbacks.ask) {
+            const options = answerOptions(target, output.request.elements);
+            const answer = await callbacks.ask(question, {
+              label: target.role === 'radio' ? target.group?.replace(/_/g, ' ') : target.label,
+              options,
+            });
+            this.throwIfStopped();
+            if (answer === null || !answer.trim()) {
+              this.remember({ action: 'ask_user', element_id: target.id, ok: false, error: 'declined by user' });
+              callbacks.onStatus('idle', 'stopped by you');
+              callbacks.onLog('You skipped the question. Stopping.');
+              return;
+            }
+            // A sensitive field's answer becomes a vault secret with a token, so the
+            // next payload carries ⟦AADHAAR_1⟧ and the egress guard knows to block the
+            // raw value. A plain field's answer ("Occupation") stays plain on the page
+            // but is still kept out of the history we send back.
+            const value = target.sensitive ? this.vault.tokenize(target.sensitive, answer.trim()) : answer.trim();
+            const filled: StepResponse = options?.length
+              ? { action: 'select', element_id: target.id, option: value, planner: response.planner }
+              : { action: 'type', element_id: target.id, text: value, planner: response.planner };
+            await this.executeStep(filled, output.request.elements, callbacks, report, true,
+              target.sensitive ? value : '(your answer)');
+            callbacks.onLog(`✓ filled your answer into ${target.label ? `“${target.label}”` : `field ${target.id}`}`);
+            await sleep(this.options.settleMs ?? 700);
+            continue;
+          }
+
           const proceed = await callbacks.confirm(question);
           this.throwIfStopped();
 
           if (!proceed) {
-            this.history.push({ action: 'ask_user', ok: false, error: 'declined by user' });
+            this.remember({ action: 'ask_user', ok: false, error: 'declined by user' });
             callbacks.onStatus('idle', 'stopped by you');
             callbacks.onLog('You declined. Stopping.');
             return;
           }
           // Approval of an ask_user that names an element means "do it".
           if (response.element_id === undefined) {
-            this.history.push({ action: 'ask_user', ok: true });
+            this.remember({ action: 'ask_user', ok: true });
             continue;
           }
           const approved: StepResponse = { ...response, action: 'click' };
           await this.executeStep(approved, output.request.elements, callbacks, report, true);
           await sleep(this.options.settleMs ?? 700);
+          continue;
+        }
+
+        if (response.action === 'wait') {
+          callbacks.onStep(report);
+          // Bounded: a model asking to wait a minute is a model that is stuck.
+          await sleep(Math.min(Math.max(response.ms ?? 800, 100), 5000));
+          this.remember({ action: 'wait', ok: true });
+          continue;
+        }
+
+        if (response.action === 'navigate') {
+          callbacks.onStep(report);
+          await this.navigate(response, output, callbacks);
           continue;
         }
 
@@ -320,8 +429,49 @@ export class Agent {
     callbacks: AgentCallbacks,
     report: StepReport,
     preApproved: boolean,
+    /** What the history should record as typed, when not the response's own text. */
+    historyText?: string,
   ): Promise<void> {
     const element = elements.find((e) => e.id === response.element_id);
+
+    // Gate 4: a real value only goes into a field that asks for that kind of value.
+    // Skipped for an answer the user just typed for this very field.
+    if (!preApproved && (response.action === 'type' || response.action === 'select')) {
+      const carried = response.action === 'type' ? (response.text ?? '') : (response.option ?? '');
+      const verdict = checkValueTarget(carried, element, this.vault);
+      if (!verdict.ok) {
+        const proceed = await callbacks.confirm(verdict.question);
+        this.throwIfStopped();
+        if (!proceed) {
+          this.remember({
+            action: response.action,
+            element_id: response.element_id,
+            ok: false,
+            error: `refused: the user's ${verdict.valueType} value does not belong in this field`,
+          });
+          callbacks.onLog(
+            `Blocked: your ${friendlyType(verdict.valueType)} was not typed into a field that did not ask for it.`,
+            'err',
+          );
+          callbacks.onStep(report);
+          return;
+        }
+      }
+    }
+
+    // Enter in a form field submits the form — the same irreversible step as the
+    // Submit button, so it gets the same question.
+    if (!preApproved && response.action === 'key' && (response.key ?? 'Enter') === 'Enter' && enterSubmits(element)) {
+      const where = element?.label ?? element?.placeholder ?? 'the focused field';
+      const proceed = await callbacks.confirm(`Press Enter in “${where}”? That submits the form.`);
+      this.throwIfStopped();
+      if (!proceed) {
+        this.remember({ action: 'key', element_id: response.element_id, ok: false, error: 'user declined submitting' });
+        callbacks.onStatus('idle', 'stopped by you');
+        callbacks.onLog('Declined: Enter was not pressed.');
+        throw new AgentStopped();
+      }
+    }
 
     // Gate 2: irreversible actions need a human, whatever the model says.
     if (!preApproved && response.action === 'click' && isIrreversible(element)) {
@@ -329,7 +479,7 @@ export class Agent {
       const proceed = await callbacks.confirm(`Press "${label}"? This cannot be undone.`);
       this.throwIfStopped();
       if (!proceed) {
-        this.history.push({
+        this.remember({
           action: 'click',
           element_id: response.element_id,
           ok: false,
@@ -346,7 +496,7 @@ export class Agent {
       action = this.resolve(response, report.output.imageScale);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.history.push({
+      this.remember({
         action: response.action,
         element_id: response.element_id,
         ok: false,
@@ -372,11 +522,11 @@ export class Agent {
 
     if (response.element_id !== undefined) this.attempted.add(response.element_id);
 
-    this.history.push({
+    this.remember({
       action: response.action,
       element_id: response.element_id,
       // The token, never the resolved value — history goes back to the server.
-      text: response.text,
+      text: historyText ?? response.text,
       ok: result.ok,
       error: result.error,
     });
@@ -386,7 +536,58 @@ export class Agent {
     if (!result.ok) callbacks.onLog(`Action failed: ${result.error}`, 'err');
   }
 
+  /**
+   * Go somewhere. Same-site links are followed without asking — that is most
+   * multi-page forms — while leaving the site needs the user's say-so, and only
+   * http(s) is ever opened. Tokens in a URL are never resolved: a model cannot put a
+   * vault value into a query string and have us deliver it to someone's server.
+   */
+  private async navigate(response: StepResponse, output: PipelineOutput, callbacks: AgentCallbacks): Promise<void> {
+    const raw = (response.url ?? '').trim();
+    const here = `${output.request.page.origin}${output.request.page.path}`;
+    const tabId = await this.activeTabId();
+
+    if (!raw || raw.toLowerCase() === 'back') {
+      const result = await sendToBackground<{ url: string }>({ kind: 'navigate', tabId, url: 'back' })
+        .then(() => ({ ok: true as const }))
+        .catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+      this.remember({ action: 'navigate', ok: result.ok, error: result.ok ? undefined : result.error });
+      callbacks.onLog(result.ok ? '✓ went back' : `Could not go back: ${result.error}`, result.ok ? 'info' : 'err');
+      await sleep(1500);
+      return;
+    }
+
+    let target: URL;
+    try {
+      target = new URL(raw, here);
+    } catch {
+      this.remember({ action: 'navigate', ok: false, error: 'not a valid URL' });
+      callbacks.onLog(`Refused to navigate: "${raw.slice(0, 80)}" is not a valid URL.`, 'err');
+      return;
+    }
+    if (!/^https?:$/.test(target.protocol) || new RegExp(TOKEN_PATTERN.source).test(decodeURIComponent(target.href))) {
+      this.remember({ action: 'navigate', ok: false, error: 'only plain http(s) links are allowed' });
+      callbacks.onLog('Refused to navigate: only plain http(s) links, with no tokens in them, are allowed.', 'err');
+      return;
+    }
+    if (target.origin !== output.request.page.origin) {
+      const proceed = await callbacks.confirm(`Leave ${output.request.page.origin} and open ${target.origin}?`);
+      this.throwIfStopped();
+      if (!proceed) {
+        this.remember({ action: 'navigate', ok: false, error: 'user declined leaving the site' });
+        callbacks.onLog(`Declined: stayed on ${output.request.page.origin}.`);
+        return;
+      }
+    }
+
+    await sendToBackground({ kind: 'navigate', tabId, url: target.href });
+    this.remember({ action: 'navigate', ok: true });
+    callbacks.onLog(`✓ opened ${target.origin}${target.pathname}`);
+    await sleep(1500);
+  }
+
   private async activeTabId(): Promise<number> {
+    if (this.options.targetTabId !== undefined) return this.options.targetTabId;
     const tab = await sendToBackground<{ id: number }>({ kind: 'activeTab' });
     return tab.id;
   }
@@ -454,8 +655,15 @@ export class Agent {
           y: Math.round((response.y ?? 0) / scale),
         };
       }
-      case 'select':
-        return { ...base, kind: 'select' };
+      case 'select': {
+        // An option may itself be a token (a profile choice, or an answer the user
+        // gave for a sensitive dropdown); it is resolved here like typed text.
+        const option = response.option ?? '';
+        if (this.vault.hasUnresolvedTokens(option)) {
+          throw new Error(`Refused to select: the server asked for a value we do not hold (${option}).`);
+        }
+        return { ...base, kind: 'select', option: this.vault.resolve(option) };
+      }
       case 'scroll':
         return { ...base, kind: 'scroll' };
       case 'key':
@@ -489,6 +697,10 @@ export function describeAction(response: StepResponse): string {
       return `scroll ${response.direction ?? 'down'}`;
     case 'key':
       return `press ${response.key}`;
+    case 'navigate':
+      return response.url && response.url !== 'back' ? `open ${response.url}` : 'go back';
+    case 'wait':
+      return `wait ${response.ms ?? 800} ms`;
     case 'ask_user':
       return 'ask the user';
     case 'done':

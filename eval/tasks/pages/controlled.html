@@ -1,0 +1,38 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Controlled inputs</title>
+<link rel="stylesheet" href="task.css"></head><body>
+<header><b>New Connection Request</b><small>A single-page app with framework-controlled fields</small></header>
+<main><form class="card" id="form" onsubmit="window.__submitted = true; return false">
+  <h2>Applicant</h2>
+  <label for="c-name">Full name</label><input type="text" id="c-name" autocomplete="name">
+  <label for="c-mail">Email address</label><input type="email" id="c-mail" autocomplete="email">
+  <label for="c-state">State</label>
+  <select id="c-state" required><option value="">Select state</option><option>Kerala</option><option>Maharashtra</option></select>
+  <p class="note">Saved by the app: <span id="saved">nothing yet</span></p>
+  <button type="submit">Submit request</button>
+</form></main>
+<script>
+  // Mimics React's value tracking: an assignment through the element's own `value`
+  // property is recorded, and an `input` event that reports the recorded value is
+  // treated as "no change". Only a value set through the prototype's native setter
+  // — the way a person's keystrokes arrive — reaches the app's state.
+  window.__state = {};
+  for (const id of ['c-name', 'c-mail', 'c-state']) {
+    const el = document.getElementById(id);
+    const proto = Object.getPrototypeOf(el);
+    const native = Object.getOwnPropertyDescriptor(proto, 'value');
+    let tracked = el.value;
+    Object.defineProperty(el, 'value', {
+      get() { return native.get.call(this); },
+      set(v) { tracked = v; native.set.call(this, v); },
+    });
+    const onChange = () => {
+      const now = native.get.call(el);
+      if (now === tracked) return; // what React does: nothing changed, as far as it knows
+      tracked = now;
+      window.__state[id] = now;
+      document.getElementById('saved').textContent = Object.keys(window.__state).join(', ');
+    };
+    el.addEventListener('input', onChange);
+    el.addEventListener('change', onChange);
+  }
+</script></body></html>

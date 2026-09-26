@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Design-system form</title>
+<link rel="stylesheet" href="task.css"></head><body>
+<header><b>Unified Services</b><small>Built with web components</small></header>
+<main><div class="card"><h2>Contact details</h2>
+  <ux-field label="Full name" auto="name"></ux-field>
+  <ux-field label="Email address" auto="email"></ux-field>
+  <ux-field label="Mobile number" auto="tel"></ux-field>
+</div></main>
+<script>
+  customElements.define('ux-field', class extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>label{display:block;font:600 12px system-ui;margin:10px 0 4px}
+        input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #c4ccd8;border-radius:6px}</style>
+        <label></label><input type="text">`;
+      root.querySelector('label').textContent = this.getAttribute('label');
+      const input = root.querySelector('input');
+      input.setAttribute('autocomplete', this.getAttribute('auto'));
+      input.setAttribute('aria-label', this.getAttribute('label'));
+    }
+  });
+</script></body></html>

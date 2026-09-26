@@ -29,9 +29,9 @@ describe('scroll instructions', () => {
   it.each([
     ['scroll down', 'down'],
     ['please scroll down a bit', 'down'],
-    ['go to the next page', 'down'],
     ['scroll up', 'up'],
     ['move back up', 'up'],
+    ['Scroll down.', 'down'],
   ])('handles "%s" locally', (task, direction) => {
     const decision = plan([], task);
     expect(decision?.response.action).toBe('scroll');
@@ -42,6 +42,25 @@ describe('scroll instructions', () => {
   it('does not treat an ordinary task as a scroll', () => {
     expect(plan([], 'Fill this form with my profile')).toBeNull();
   });
+
+  it('finishes a bare scroll task after one scroll, instead of scrolling forever', () => {
+    const decision = planLocally({
+      task: 'scroll down', elements: [], vault, attempted: new Set(), alreadyScrolled: true,
+    });
+    expect(decision?.response.action).toBe('done');
+  });
+
+  it('leaves the scroll in a compound task to the planner', () => {
+    // It used to answer "scroll" on every step, since the task kept matching.
+    expect(plan([], 'scroll down and fill the form')).toBeNull();
+  });
+
+  it.each(['go back', 'go to the next page', 'previous page'])(
+    'does not guess that "%s" means scrolling — it is navigation',
+    (task) => {
+      expect(plan([], task)).toBeNull();
+    },
+  );
 });
 
 describe('fields the page itself declared', () => {

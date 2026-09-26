@@ -120,6 +120,10 @@ const ui = {
   confirm: $('confirm'),
   confirmScrim: $('confirm-scrim'),
   confirmQuestion: $('confirm-question'),
+  confirmAnswer: $('confirm-answer'),
+  confirmInput: $<HTMLInputElement>('confirm-input'),
+  confirmSelect: $<HTMLSelectElement>('confirm-select'),
+  confirmNote: $('confirm-note'),
   confirmYes: $<HTMLButtonElement>('confirm-yes'),
   confirmNo: $<HTMLButtonElement>('confirm-no'),
 };
@@ -190,6 +194,7 @@ function setRunning(active: boolean): void {
  * ------------------------------------------------------------------ */
 
 function askConfirmation(question: string): Promise<boolean> {
+  sheetMode('confirm');
   ui.confirmQuestion.textContent = question;
   ui.confirm.hidden = false;
   setStatus('busy', 'Waiting for you');
@@ -204,11 +209,77 @@ function askConfirmation(question: string): Promise<boolean> {
   });
 }
 
-ui.confirmYes.addEventListener('click', () => pendingConfirm?.(true));
-ui.confirmNo.addEventListener('click', () => pendingConfirm?.(false));
-ui.confirmScrim.addEventListener('click', () => pendingConfirm?.(false));
+/**
+ * The sheet has two jobs: consent ("Press Submit?") and a question with an answer
+ * ("What should I put in Father's name?"). Same surface, so the user always knows
+ * where the agent is waiting — but the answer mode says plainly where the value goes.
+ */
+function sheetMode(mode: 'confirm' | 'ask'): void {
+  ui.confirm.dataset.mode = mode;
+  ui.confirmAnswer.hidden = mode !== 'ask';
+  ui.confirmYes.textContent = mode === 'ask' ? 'Fill it' : 'Continue';
+  ui.confirmNo.textContent = mode === 'ask' ? 'Skip' : 'Stop';
+  ui.confirmNote.textContent =
+    mode === 'ask'
+      ? 'Typed into the page on this device. The server never sees your answer.'
+      : 'Nothing has been clicked. The agent is waiting for you.';
+}
+
+/** Resolver for an answer, set while the sheet is open in answer mode. */
+let pendingAnswer: ((answer: string | null) => void) | null = null;
+
+function askForValue(question: string, field: { label?: string; options?: string[] }): Promise<string | null> {
+  sheetMode('ask');
+  ui.confirmQuestion.textContent = question;
+
+  const options = (field.options ?? []).filter((o) => o.trim() && !/^(select|choose|--)/i.test(o.trim()));
+  ui.confirmSelect.hidden = options.length === 0;
+  ui.confirmInput.hidden = options.length > 0;
+  ui.confirmSelect.replaceChildren(
+    ...options.map((o) => Object.assign(document.createElement('option'), { value: o, textContent: o })),
+  );
+  ui.confirmInput.value = '';
+  ui.confirmInput.placeholder = field.label ? `Your ${field.label.toLowerCase()}` : 'Your answer';
+
+  ui.confirm.hidden = false;
+  setStatus('busy', 'Waiting for your answer');
+  (options.length ? ui.confirmSelect : ui.confirmInput).focus();
+
+  return new Promise((resolve) => {
+    pendingAnswer = (answer) => {
+      ui.confirm.hidden = true;
+      pendingAnswer = null;
+      ui.confirmInput.value = ''; // never leave an answer sitting in the DOM
+      resolve(answer);
+    };
+  });
+}
+
+function answerNow(): void {
+  const value = ui.confirmSelect.hidden ? ui.confirmInput.value : ui.confirmSelect.value;
+  pendingAnswer?.(value.trim() ? value : null);
+}
+
+ui.confirmInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') answerNow();
+});
+
+ui.confirmYes.addEventListener('click', () => {
+  if (pendingAnswer) answerNow();
+  else pendingConfirm?.(true);
+});
+ui.confirmNo.addEventListener('click', () => {
+  pendingAnswer?.(null);
+  pendingConfirm?.(false);
+});
+ui.confirmScrim.addEventListener('click', () => {
+  pendingAnswer?.(null);
+  pendingConfirm?.(false);
+});
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && pendingConfirm) pendingConfirm(false);
+  if (event.key !== 'Escape') return;
+  pendingAnswer?.(null);
+  pendingConfirm?.(false);
 });
 
 /* ------------------------------------------------------------------ *
@@ -629,10 +700,18 @@ function renderOutput(output: PipelineOutput): void {
  * Actions
  * ------------------------------------------------------------------ */
 
+/**
+ * Set when the panel was opened as its own window (`sidepanel.html?tab=123`):
+ * browsers without a side panel API, and the task benchmark. In a side panel this
+ * is undefined and the agent follows the active tab, as a person would expect.
+ */
+const PINNED_TAB = Number(new URLSearchParams(location.search).get('tab')) || undefined;
+
 function makeAgent(): Agent {
   return new Agent(
     vault,
     {
+      targetTabId: PINNED_TAB,
       serverUrl: ui.serverUrl.value.trim(),
       maxSteps: 12,
       vision: ui.visionToggle.checked,
@@ -717,6 +796,7 @@ async function run(): Promise<void> {
       }
     },
     confirm: askConfirmation,
+    ask: askForValue,
   });
 
   setRunning(false);
@@ -769,6 +849,7 @@ ui.checkServer.addEventListener('click', () => void checkServer());
 ui.run.addEventListener('click', () => {
   if (running) {
     agent?.stop();
+    pendingAnswer?.(null);
     pendingConfirm?.(false);
     log('Stop requested.');
     return;

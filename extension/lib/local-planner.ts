@@ -41,10 +41,31 @@ function isDeclaredByPage(reason: string | undefined): boolean {
   return reason?.startsWith('autocomplete=') === true;
 }
 
+/**
+ * Scrolling, and only scrolling.
+ *
+ * "Go back" and "next page" are deliberately absent: the first is browser history
+ * and the second is usually a pagination button, and treating either as a scroll
+ * is acting on a guess — the one thing this planner must never do.
+ */
 const SCROLL_PATTERNS: Array<[RegExp, 'up' | 'down']> = [
-  [/\b(scroll|page|move|go)\s+(down|further|lower)\b|\bnext page\b/i, 'down'],
-  [/\b(scroll|page|move|go)\s+(up|back|higher)\b|\bprevious page\b/i, 'up'],
+  [/\b(scroll|page|move)\s+(down|further|lower)\b/i, 'down'],
+  [/\b(scroll|page|move)\s+(back\s+)?(up|higher)\b/i, 'up'],
 ];
+
+/** Words that add nothing to a scroll instruction. */
+const SCROLL_FILLER = /\b(please|pls|a|bit|little|more|the|page|once|again|for me|now|just|can you|could you)\b/gi;
+
+/**
+ * True only when the whole task *is* the scroll. "Scroll down and fill the form"
+ * is a form-filling task that happens to start with a scroll: handling its scroll
+ * here used to repeat on every step, since the task still matched, until the step
+ * budget ran out.
+ */
+function isBareScroll(task: string, pattern: RegExp): boolean {
+  const rest = task.replace(pattern, ' ').replace(SCROLL_FILLER, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return rest.length === 0;
+}
 
 export interface LocalDecision {
   response: StepResponse;
@@ -58,6 +79,8 @@ export interface LocalPlannerInput {
   vault: Vault;
   /** Element ids already typed into, so a failed field is not retried forever. */
   attempted: ReadonlySet<number>;
+  /** Whether this task has already scrolled — a bare scroll task is then finished. */
+  alreadyScrolled?: boolean;
 }
 
 /**
@@ -67,9 +90,21 @@ export interface LocalPlannerInput {
 export function planLocally(input: LocalPlannerInput): LocalDecision | null {
   const { task, elements, vault, attempted } = input;
 
-  // 1. A bare scroll instruction needs no model.
+  // 1. A bare scroll instruction needs no model — once. Then it is done.
   for (const [pattern, direction] of SCROLL_PATTERNS) {
-    if (pattern.test(task)) {
+    if (pattern.test(task) && isBareScroll(task, pattern)) {
+      if (input.alreadyScrolled) {
+        return {
+          response: {
+            action: 'done',
+            summary: `Scrolled ${direction}.`,
+            reason: 'The task was a single scroll, and it has happened.',
+            confidence: 1,
+            planner: 'local',
+          },
+          because: 'the scroll this task asked for is done',
+        };
+      }
       return {
         response: {
           action: 'scroll',

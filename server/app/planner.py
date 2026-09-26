@@ -12,6 +12,8 @@ produced it, so nobody can mistake this for the model reasoning.
 
 from __future__ import annotations
 
+import re
+
 from .schemas import StepRequest, StepResponse, WireElement
 
 #: Which profile key can fill a field of each sensitive type.
@@ -41,6 +43,22 @@ _STOP_PHRASES = ("stop before", "don't submit", "do not submit", "without submit
 #: Tasks that ask to be *told* something rather than to have something done.
 #: Without this the form-filling path runs anyway and answers "Filled every field I
 #: could" to the question "what is on this page", which is worse than declining.
+#: A name field that is about someone else. Classified NAME — rightly, since it holds
+#: a person's name and must be redacted — but filling it with the *applicant's* name
+#: is wrong on almost every Indian government form, which asks for a father's,
+#: mother's, guardian's or nominee's name as a matter of course.
+_SOMEONE_ELSE = re.compile(
+    r"\b(father|mother|guardian|spouse|husband|wife|nominee|parent|son|daughter|brother|sister|"
+    r"relative|emergency contact|referee|witness|co-?applicant)\b|पिता|माता|पति|पत्नी|अभिभावक|नामांकित",
+    re.IGNORECASE,
+)
+
+#: A task phrased as a question wants an answer, not a filled form.
+_QUESTION = re.compile(
+    r"^\s*(what|which|when|where|who|how much|how many|is|are|does|did|has|have|can you tell|tell me|check)\b",
+    re.IGNORECASE,
+)
+
 _READ_ONLY_PHRASES = (
     "describe", "what is on", "what's on", "summarise", "summarize", "summary",
     "read this", "read the page", "tell me about", "explain this page", "what does this page",
@@ -49,6 +67,12 @@ _READ_ONLY_PHRASES = (
 
 def _is_editable(element: WireElement) -> bool:
     return element.role in {"textbox", "searchbox", "combobox"} and not element.disabled
+
+
+def _here(request: StepRequest):
+    """This page's history. Element ids are stable only within a page."""
+    page = f"{request.page.origin}{request.page.path}"
+    return [h for h in request.history if h.page is None or h.page == page]
 
 
 def _is_empty(element: WireElement) -> bool:
@@ -64,13 +88,30 @@ def _looks_irreversible(element: WireElement) -> bool:
 
 def _repeated_failure(request: StepRequest, element_id: int) -> bool:
     """Two failures on the same element means stop trying it."""
-    failures = [h for h in request.history if h.element_id == element_id and not h.ok]
+    failures = [h for h in _here(request) if h.element_id == element_id and not h.ok]
     return len(failures) >= 2
+
+
+#: A button whose only job is to show the next part of the form.
+_ADVANCE = re.compile(
+    r"^(next|next step|continue|proceed|save (and|&) continue|आगे|आगे बढ़ें)\s*[›>→»]*$",
+    re.IGNORECASE,
+)
+
+
+def _already_clicked(request: StepRequest, element_id: int) -> bool:
+    return any(h.element_id == element_id and h.action == "click" for h in _here(request))
+
+
+def _already_answered(request: StepRequest, element_id: int) -> bool:
+    return any(
+        h.element_id == element_id and h.action in {"select", "type", "ask_user"} for h in _here(request)
+    )
 
 
 def _already_typed(request: StepRequest, element_id: int) -> bool:
     return any(
-        h.element_id == element_id and h.ok and h.action == "type" for h in request.history
+        h.element_id == element_id and h.ok and h.action == "type" for h in _here(request)
     )
 
 
@@ -140,7 +181,8 @@ def plan(request: StepRequest) -> StepResponse:
     #    typing into someone's fields because they asked what the page says is the
     #    wrong action, not merely an unhelpful one.
     task = request.task.lower()
-    if any(phrase in task for phrase in _READ_ONLY_PHRASES):
+    is_question = task.strip().endswith("?") or bool(_QUESTION.match(task))
+    if is_question or any(phrase in task for phrase in _READ_ONLY_PHRASES):
         return StepResponse(
             action="done",
             summary=describe(request),
@@ -161,6 +203,8 @@ def plan(request: StepRequest) -> StepResponse:
             continue
 
         key = _TYPE_TO_PROFILE_KEY.get(element.sensitive)
+        if key == "FULL_NAME" and _SOMEONE_ELSE.search(element.label or element.placeholder or ""):
+            continue  # someone else's name: ask (step 2), never guess with the user's own
         if key and key in available:
             return StepResponse(
                 action="type",
@@ -186,6 +230,67 @@ def plan(request: StepRequest) -> StepResponse:
             confidence=0.8,
             planner="rule-based",
         )
+
+    # 2b. A required radio group with nothing chosen — gender, category, "same as
+    #     permanent address?". Asked as one question with the group's own options,
+    #     because a radio button on its own is not something anyone can answer.
+    asked_groups: set[str] = set()
+    for element in request.elements:
+        if element.role != "radio" or not element.group or element.group in asked_groups:
+            continue
+        group = [e for e in request.elements if e.role == "radio" and e.group == element.group]
+        if not any(e.required for e in group) or any(e.checked for e in group):
+            continue
+        asked_groups.add(element.group)
+        if any(_repeated_failure(request, e.id) or _already_answered(request, e.id) for e in group):
+            continue
+        choices = " / ".join(e.label for e in group if e.label)
+        return StepResponse(
+            action="ask_user",
+            element_id=group[0].id,
+            question=f"Which {element.group.replace('_', ' ')}? {choices}".strip(),
+            reason="Required choice with no matching profile value.",
+            confidence=0.8,
+            planner="rule-based",
+        )
+
+    fill_task = not is_question and not any(phrase in task for phrase in _READ_ONLY_PHRASES)
+    fillable_in_view = any(_is_editable(e) for e in request.elements)
+    submit_in_view = any(e.role == "button" and _looks_irreversible(e) and not e.disabled for e in request.elements)
+
+    # 2c. A wizard: this step is done, and the way on is a plain "Next". Not an
+    #     irreversible button — those always go to the user — just the page's own
+    #     way of showing the rest of the form.
+    if fill_task:
+        advance = next(
+            (
+                e for e in request.elements
+                if e.role == "button" and not e.disabled and not _looks_irreversible(e)
+                and _ADVANCE.match((e.text or e.label or "").strip())
+                and not _already_clicked(request, e.id)
+            ),
+            None,
+        )
+        if advance is not None:
+            return StepResponse(
+                action="click",
+                element_id=advance.id,
+                reason=f"Every field on this step is handled; '{advance.text or advance.label}' shows the next.",
+                confidence=0.85,
+                planner="rule-based",
+            )
+
+    # 2d. Nothing to fill in view, no way to finish in view, and the page goes on:
+    #     the form is further down. Bounded, so a page of endless feed cannot trap us.
+    if fill_task and request.page.more_below and not fillable_in_view and not submit_in_view:
+        if sum(1 for h in _here(request) if h.action == "scroll") < 4:
+            return StepResponse(
+                action="scroll",
+                direction="down",
+                reason="No form fields in view and the page continues below.",
+                confidence=0.8,
+                planner="rule-based",
+            )
 
     # 3. Everything fillable is filled. Never press the irreversible button ourselves.
     stop_requested = any(phrase in request.task.lower() for phrase in _STOP_PHRASES)

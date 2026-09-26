@@ -19,11 +19,48 @@ export interface KnownValue {
   type: PiiType;
 }
 
+/**
+ * Element ids that stay put while the element does.
+ *
+ * Ids used to be assigned afresh on every snapshot, in document order. Anything that
+ * changed the page between two steps — a wizard hiding step 1 to show step 2, a
+ * section that expands, a row that appears — shifted every id after it, and the
+ * agent's memory of "already filled field 1 and 2" then applied to *different
+ * fields* that had inherited those numbers. On a two-step form it filled step 1,
+ * pressed Next, and declared the task done without touching step 2.
+ *
+ * Now an element keeps its id for as long as it is on the page, and a new element
+ * gets a new one. Ids stay below `VISION_ID_BASE` (1000, lib/vision/ui-detector.ts):
+ * past that, numbering starts a fresh epoch rather than collide with the ids of
+ * controls the vision layer found in pixels.
+ */
+export const MAX_DOM_ID = 999;
+
+export class StableIds {
+  private ids = new WeakMap<object, number>();
+  private next = 1;
+
+  idFor(el: object): number {
+    let id = this.ids.get(el);
+    if (id === undefined) {
+      if (this.next > MAX_DOM_ID) {
+        this.ids = new WeakMap();
+        this.next = 1;
+      }
+      id = this.next++;
+      this.ids.set(el, id);
+    }
+    return id;
+  }
+}
+
 export interface SnapshotOptions {
   maxElements?: number;
   maxImages?: number;
   /** Populated with id → element so actions can be executed against it later. */
   registry?: Map<number, Element>;
+  /** Keep element ids stable across snapshots of the same page (the content script does). */
+  stableIds?: StableIds;
   /**
    * Values the vault already holds — the user's profile. Located by literal match
    * so that a name or a street address, which no pattern can recognise, still gets
@@ -34,7 +71,7 @@ export interface SnapshotOptions {
 
 export function buildSnapshot(options: SnapshotOptions = {}): DomSnapshot {
   const startedAt = performance.now();
-  const { maxElements = 160, maxImages = 40, registry, knownValues = [] } = options;
+  const { maxElements = 160, maxImages = 40, registry, knownValues = [], stableIds } = options;
   registry?.clear();
 
   const viewport = { w: window.innerWidth, h: window.innerHeight };
@@ -45,7 +82,9 @@ export function buildSnapshot(options: SnapshotOptions = {}): DomSnapshot {
     dpr: window.devicePixelRatio || 1,
     viewport,
     scroll: { x: window.scrollX, y: window.scrollY },
-    elements: collectElements(viewport, maxElements, registry),
+    moreBelow: window.scrollY + window.innerHeight <
+      (document.scrollingElement ?? document.documentElement).scrollHeight - 24,
+    elements: collectElements(viewport, maxElements, registry, stableIds),
     textFindings: collectTextFindings(viewport, knownValues),
     imageCandidates: collectImageCandidates(viewport, maxImages),
     opaqueFrames: opaqueFrames(document).filter(
@@ -92,6 +131,7 @@ function collectElements(
   viewport: { w: number; h: number },
   maxElements: number,
   registry?: Map<number, Element>,
+  stableIds?: StableIds,
 ): PageElement[] {
   const out: PageElement[] = [];
   let nextId = 1;
@@ -102,7 +142,7 @@ function collectElements(
     if (out.length >= maxElements) break;
     if (!isVisibleInViewport(el, viewport, dx, dy)) continue;
 
-    const id = nextId++;
+    const id = stableIds ? stableIds.idFor(el) : nextId++;
     const label = accessibleName(el);
     const role = roleOf(el);
 
@@ -132,6 +172,10 @@ function collectElements(
     if (input.required) element.required = true;
     if (typeof input.checked === 'boolean' && (input.type === 'checkbox' || input.type === 'radio')) {
       element.checked = input.checked;
+    }
+    if (input.type === 'radio') {
+      const name = el.getAttribute('name');
+      if (name) element.group = name.slice(0, 60);
     }
 
     const autocomplete = el.getAttribute('autocomplete');

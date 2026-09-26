@@ -58,9 +58,18 @@ Actions, one per response:
   {"action": "scroll", "direction": "down", "amount": 600}
   {"action": "key", "element_id": 5, "key": "Enter"}
   {"action": "click_xy", "x": 410, "y": 260}
+  {"action": "navigate", "url": "/apply/step-2"}
+  {"action": "navigate", "url": "back"}
   {"action": "wait", "ms": 500}
+  {"action": "ask_user", "element_id": 9, "question": "What is your father's name?"}
   {"action": "ask_user", "question": "..."}
   {"action": "done", "summary": "..."}
+
+`select` also works on a radio-button group: name any radio in the group and give \
+the option's label. To fill a field the profile cannot cover, use `ask_user` with \
+that field's `element_id`: the user types the answer locally and you will only ever \
+see a token for it. `navigate` stays on the current site unless the user approves; \
+prefer clicking a visible "Next" or link over guessing a URL.
 
 RULES
 

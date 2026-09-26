@@ -365,7 +365,14 @@
             </svg>
           </span>
           <p class="sheet__q" id="confirm-question"></p>
-          <p class="sheet__note">Nothing has been clicked. The agent is waiting for you.</p>
+          <!-- Answer mode: the agent needs a value the profile does not hold. The
+               answer is typed into the page here; a sensitive one goes on the wire
+               only as a token. -->
+          <div class="sheet__answer" id="confirm-answer" hidden>
+            <input id="confirm-input" type="text" autocomplete="off" spellcheck="false" />
+            <select id="confirm-select"></select>
+          </div>
+          <p class="sheet__note" id="confirm-note">Nothing has been clicked. The agent is waiting for you.</p>
           <div class="sheet__actions">
             <button id="confirm-no" class="btn btn--soft btn--wide">Stop</button>
             <button id="confirm-yes" class="btn btn--primary btn--wide">Continue</button>

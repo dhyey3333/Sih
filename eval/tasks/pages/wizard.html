@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Registration wizard</title>
+<link rel="stylesheet" href="task.css"></head><body>
+<header><b>Citizen Services Registration</b><small>Two steps · takes two minutes</small></header>
+<main><form class="card" id="form" onsubmit="window.__submitted = true; return false">
+  <section id="step1">
+    <h2>Step 1 of 2 — who you are</h2>
+    <label for="fullname">Full name</label><input type="text" id="fullname" autocomplete="name">
+    <label for="mail">Email address</label><input type="email" id="mail" autocomplete="email">
+    <button type="button" class="secondary" id="next"
+      onclick="document.getElementById('step1').hidden = true; document.getElementById('step2').hidden = false">Next</button>
+  </section>
+  <section id="step2" hidden>
+    <h2>Step 2 of 2 — how to reach you</h2>
+    <label for="phone">Mobile number</label><input type="tel" id="phone" autocomplete="tel">
+    <label for="addr">Residential address</label><textarea id="addr" rows="2" autocomplete="street-address"></textarea>
+    <button type="submit">Submit registration</button>
+  </section>
+</form></main></body></html>
