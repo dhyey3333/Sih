@@ -7,7 +7,15 @@
  * not a reimplementation that drifts.
  */
 
-import type { DomSnapshot, ImageCandidate, PageElement, PiiType, Rect, TextFinding } from '../protocol';
+import type {
+  DomSnapshot,
+  ImageCandidate,
+  PageElement,
+  PiiType,
+  Rect,
+  TextFinding,
+  VisibleTextBlock,
+} from '../protocol';
 import { accessibleName, interactiveSelector, isVisibleInViewport, roleOf } from './accessibility';
 import { collectTextBlocks, rectsForSpan } from './text-blocks';
 import { deepQueryAll, opaqueFrames } from './deep';
@@ -75,6 +83,7 @@ export function buildSnapshot(options: SnapshotOptions = {}): DomSnapshot {
   registry?.clear();
 
   const viewport = { w: window.innerWidth, h: window.innerHeight };
+  const text = collectText(viewport, knownValues);
 
   return {
     url: location.href,
@@ -85,7 +94,8 @@ export function buildSnapshot(options: SnapshotOptions = {}): DomSnapshot {
     moreBelow: window.scrollY + window.innerHeight <
       (document.scrollingElement ?? document.documentElement).scrollHeight - 24,
     elements: collectElements(viewport, maxElements, registry, stableIds),
-    textFindings: collectTextFindings(viewport, knownValues),
+    textFindings: text.findings,
+    visibleText: text.blocks,
     imageCandidates: collectImageCandidates(viewport, maxImages),
     opaqueFrames: opaqueFrames(document).filter(
       (f) => f.y + f.h > 0 && f.x + f.w > 0 && f.y < viewport.h && f.x < viewport.w,
@@ -226,12 +236,17 @@ function collectElements(
 /**
  * PII in the page's own text — a profile page showing an email, a statement showing
  * an account number. Read-only, but exactly what leaks through a screenshot.
+ *
+ * The same pass yields the screen's text, with the same spans marked, so the text a
+ * model may read and the boxes painted on the screenshot come from one scan and
+ * cannot disagree about what was sensitive.
  */
-function collectTextFindings(
+function collectText(
   viewport: { w: number; h: number },
   knownValues: KnownValue[],
-): TextFinding[] {
+): { findings: TextFinding[]; blocks: VisibleTextBlock[] } {
   const findings: TextFinding[] = [];
+  const blocks: VisibleTextBlock[] = [];
 
   for (const block of collectTextBlocks(document.body, { viewport })) {
     // Context comes from the block's own text *and* from the label beside it, so
@@ -254,9 +269,16 @@ function collectTextFindings(
       if (rects.length === 0) continue;
       findings.push({ type: span.type, value: span.value, rects, confidence: span.confidence });
     }
+
+    blocks.push({
+      text: block.text,
+      bbox: block.bbox,
+      spans: spans.map(({ start, end, type, value }) => ({ start, end, type, value })),
+      context: context.slice(0, 500),
+    });
   }
 
-  return findings;
+  return { findings, blocks };
 }
 
 /**

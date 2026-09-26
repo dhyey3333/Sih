@@ -84,6 +84,10 @@ RULES
 5. If the task is complete, or nothing useful remains, return `done` with a summary.
 6. `history` shows what has already been tried. If an action failed twice, do \
    something different rather than repeating it.
+7. If the task is a question about the page, do not click or type anything: return \
+   `done` with the answer in `summary`, using the words and numbers exactly as the \
+   SCREEN TEXT shows them. If the answer is behind a token, name the token — never \
+   guess what it hides.
 """
 
 
@@ -115,6 +119,16 @@ def build_user_message(request: StepRequest) -> str:
     parts.append(f"PROFILE KEYS AVAILABLE: {', '.join(request.profile_keys) or '(none)'}")
     parts.append(f"REDACTIONS ON THIS SCREEN:\n{json.dumps(redactions, ensure_ascii=False)}")
     parts.append(f"ELEMENTS:\n{json.dumps(elements, ensure_ascii=False)}")
+
+    if request.visible_text:
+        # Plain lines, not JSON: this is for reading, and escaping every quote in a
+        # paragraph costs a small model more than it helps.
+        parts.append(
+            "SCREEN TEXT (reading order; personal data already replaced by tokens):\n"
+            + request.visible_text
+        )
+    if request.page.more_below:
+        parts.append("The page continues below what is on screen; scroll down to see more of it.")
 
     if request.history:
         recent = [h.model_dump(exclude_none=True) for h in request.history[-8:]]

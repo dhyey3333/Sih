@@ -160,6 +160,24 @@ export interface TextFinding {
   confidence: number;
 }
 
+/**
+ * One block of on-screen text, in reading order, with every PII span in it marked.
+ * Internal: `text` and span values are raw. Only `lib/pii/visible-text.ts` turns it
+ * into something sendable, and only at disclosure level 2.
+ */
+export interface VisibleTextBlock {
+  text: string;
+  /** Union of the block's rendered lines, CSS pixels, viewport-relative. */
+  bbox: Rect;
+  /**
+   * Every match in the block, including ones whose pixels are just off screen — a
+   * paragraph half in view is sent whole, so the half out of view must be tokenized too.
+   */
+  spans: Array<{ start: number; end: number; type: PiiType; value: string }>;
+  /** The words around the block that context-dependent rules need ("OTP", "Date of birth"). */
+  context: string;
+}
+
 /** An <img>/<canvas>/<video> the DOM can't read into: handed to the vision layer. */
 export interface ImageCandidate {
   elementId: number;
@@ -179,6 +197,8 @@ export interface DomSnapshot {
   moreBelow?: boolean;
   elements: PageElement[];
   textFindings: TextFinding[];
+  /** The screen's text, for answering questions about it. Sanitized before it goes anywhere. */
+  visibleText?: VisibleTextBlock[];
   imageCandidates: ImageCandidate[];
   /**
    * Regions of the screen we were not allowed to look inside — cross-origin frames,
@@ -286,6 +306,12 @@ export interface StepRequest {
   /** Which profile keys exist — never their values. */
   profile_keys: string[];
   history: HistoryEntry[];
+  /**
+   * The screen's text in reading order, every detected value replaced by the same
+   * token its box carries. L2 only: it is the text the redacted screenshot already
+   * shows, so a small model can read it instead of squinting at pixels.
+   */
+  visible_text?: string;
 }
 
 export type ActionName =

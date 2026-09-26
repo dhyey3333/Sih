@@ -54,8 +54,12 @@ _SOMEONE_ELSE = re.compile(
 )
 
 #: A task phrased as a question wants an answer, not a filled form.
+#: "Check" only when it is asking ("check whether…", "check my status"), not ticking a
+#: box. A lookahead rather than \b, which does not see a Devanagari word's edge.
+#: Mirrored in extension/lib/local-planner.ts.
 _QUESTION = re.compile(
-    r"^\s*(what|which|when|where|who|how much|how many|is|are|does|did|has|have|can you tell|tell me|check)\b",
+    r"^\s*(what|which|when|where|who|how much|how many|is|are|does|did|has|have|can you tell|tell me|"
+    r"check (if|whether|my|the status|status|what)|क्या)(?=[\s'’?,.!]|$)",
     re.IGNORECASE,
 )
 
@@ -173,6 +177,104 @@ def describe(request: StepRequest) -> str:
     return " ".join(parts)
 
 
+#: Words that carry the shape of a question, not its subject.
+_STOPWORDS = frozenset(
+    "what which when where who whom whose how much many is are was were be been does did do has have had "
+    "can could will would should you tell me check the a an of my mine our your this that these those on in "
+    "at for to it its and or there page screen please show about current currently now i am give any from "
+    "with by as क्या है हैं मेरा मेरी मेरे का की के में को".split()
+)
+_WORD = re.compile(r"[\w\u0900-\u097F]+")
+
+
+def _words(text: str) -> set[str]:
+    out = set()
+    for word in _WORD.findall(text.lower()):
+        # The lightest stemming that helps: "applications" asks about "application".
+        if len(word) > 4 and word.endswith("s"):
+            word = word[:-1]
+        if word not in _STOPWORDS and len(word) > 1:
+            out.add(word)
+    return out
+
+
+def answer_from_text(question: str, screen_text: str) -> str | None:
+    """The screen line that best answers a question, or None.
+
+    Extractive, and honest about it: no model, just the question's own words matched
+    against the screen text. Rare words count for more — on a status page "application"
+    is everywhere and "status" is on one line, and that line is the answer. A line that
+    is nothing but the question's words ("Status") is a label, so the next line (the
+    value beside it) comes with it.
+    """
+    keywords = _words(question)
+    lines = [line.strip() for line in screen_text.splitlines() if line.strip() and line.strip() != "…"]
+    if not keywords or not lines:
+        return None
+
+    line_words = [_words(line) for line in lines]
+    df = {k: sum(1 for words in line_words if k in words) for k in keywords}
+
+    best, best_score = -1, 0.0
+    for i, words in enumerate(line_words):
+        score = sum(1 / df[k] for k in keywords if k in words)
+        if score > best_score:
+            best, best_score = i, score
+    if best < 0:
+        return None
+
+    answer = lines[best]
+    if line_words[best] <= keywords and best + 1 < len(lines):
+        answer = f"{answer} {lines[best + 1]}"
+    return answer
+
+
+_SEARCH_TASK = re.compile(
+    r"^\s*(?:please\s+)?(?:search|look\s+up)\s+(?:for\s+|about\s+)?(.+?)\s*[.!]?\s*$", re.IGNORECASE
+)
+_SEARCH_LABEL = re.compile(r"search|खोज", re.IGNORECASE)
+
+
+def search_query(task: str) -> str | None:
+    """Mirrors searchQuery in extension/lib/local-planner.ts."""
+    m = _SEARCH_TASK.match(task)
+    if not m:
+        return None
+    query = m.group(1).strip().strip("\"'“”‘’").strip()
+    if not query or re.search(r"\b(and|then)\b|,", query, re.IGNORECASE):
+        return None
+    return query
+
+
+def _search(request: StepRequest, query: str) -> StepResponse:
+    """Type the query into the search box, press Enter, stop. Never fills the profile."""
+    if any(h.action == "key" and h.ok for h in request.history):
+        return StepResponse(
+            action="done", summary=f"Searched for “{query}”. The results are on screen.",
+            reason="The task was a search, and it has been run.", confidence=0.9, planner="rule-based",
+        )
+    boxes = [e for e in request.elements if e.role == "searchbox" and not e.disabled] or [
+        e for e in request.elements
+        if _is_editable(e) and _SEARCH_LABEL.search(f"{e.label or ''} {e.placeholder or ''}")
+    ]
+    if not boxes:
+        return StepResponse(
+            action="done", summary="There is no search box on this screen.",
+            reason="Nothing to type the query into.", confidence=0.7, planner="rule-based",
+        )
+    box = boxes[0]
+    if (box.value or "").strip().lower() != query.lower() and not _already_typed(request, box.id):
+        return StepResponse(
+            action="type", element_id=box.id, text=query,
+            reason=f"The task is a search; '{box.label or box.placeholder or box.id}' is the search box.",
+            confidence=0.85, planner="rule-based",
+        )
+    return StepResponse(
+        action="key", element_id=box.id, key="Enter",
+        reason="The query is in the search box; Enter runs it.", confidence=0.85, planner="rule-based",
+    )
+
+
 def plan(request: StepRequest) -> StepResponse:
     """Decide the next action from the sanitized context alone."""
     available = set(request.profile_keys)
@@ -182,6 +284,17 @@ def plan(request: StepRequest) -> StepResponse:
     #    wrong action, not merely an unhelpful one.
     task = request.task.lower()
     is_question = task.strip().endswith("?") or bool(_QUESTION.match(task))
+    if is_question and request.visible_text:
+        answer = answer_from_text(request.task, request.visible_text)
+        if answer:
+            return StepResponse(
+                action="done",
+                summary=f"From the screen: “{answer}”",
+                reason="The line of screen text that best matches the question's words. "
+                "Matched by keyword, not read by a model.",
+                confidence=0.6,
+                planner="rule-based",
+            )
     if is_question or any(phrase in task for phrase in _READ_ONLY_PHRASES):
         return StepResponse(
             action="done",
@@ -190,6 +303,12 @@ def plan(request: StepRequest) -> StepResponse:
             confidence=0.9,
             planner="rule-based",
         )
+
+    # 0b. A search is a search: the query goes in the search box, and the profile
+    #     stays out of every other field on the page.
+    query = search_query(request.task)
+    if query:
+        return _search(request, query)
 
     # 1. Fill any empty sensitive field we hold a profile value for.
     for element in request.elements:

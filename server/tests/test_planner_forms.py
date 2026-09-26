@@ -3,7 +3,7 @@ forms that start below the fold. Each was a place it used to stop and say "done"
 
 from __future__ import annotations
 
-from app.planner import plan
+from app.planner import answer_from_text, plan, search_query
 from app.schemas import StepRequest
 
 from .fixtures import element, sanitized_request
@@ -118,3 +118,77 @@ class TestHistoryIsPerPage:
             history=[{"action": "type", "element_id": 1, "ok": True, "page": "https://demo.local/apply"}],
         ))
         assert not (r.action == "type" and r.element_id == 1)
+
+
+STATUS_SCREEN = "\n".join([
+    "Post-Matric Scholarship Portal Track your application",
+    "Application SCH-2026-044817",
+    "Status: Approved",
+    "Scholarship amount: ₹12,000 for the 2026–27 academic year.",
+])
+
+
+class TestAnsweringFromScreenText:
+    def test_the_rarer_word_picks_the_line(self):
+        # "application" is on three lines, "status" on one: that one is the answer.
+        assert answer_from_text("What is the status of my application?", STATUS_SCREEN) == "Status: Approved"
+
+    def test_a_bare_label_brings_its_value(self):
+        text = "Payment details\nAmount due\n₹4,500\nDue date\n30 September 2026"
+        assert answer_from_text("When is the due date?", text) == "Due date 30 September 2026"
+
+    def test_nothing_in_common_is_no_answer(self):
+        assert answer_from_text("Where is the office?", STATUS_SCREEN) is None
+
+    def test_a_question_is_answered_not_filled(self):
+        r = plan(req(task="What is the status of my application?", visible_text=STATUS_SCREEN))
+        assert r.action == "done"
+        assert "Approved" in r.summary
+        assert "keyword" in r.reason  # never passed off as a model reading the page
+
+    def test_without_screen_text_it_describes_instead(self):
+        r = plan(req(task="What is the status of my application?"))
+        assert r.action == "done"
+        assert "From the screen" not in r.summary
+
+    def test_an_instruction_is_not_mistaken_for_a_question(self):
+        r = plan(req(
+            task="Fill this form with my details",
+            visible_text=STATUS_SCREEN,
+            elements=[element(id=1, label="Email", sensitive="EMAIL")],
+        ))
+        assert r.action == "type"
+
+
+class TestSearch:
+    box = element(id=7, role="searchbox", label="Search")
+
+    def test_types_the_query_not_the_profile(self):
+        r = plan(req(task="Search for post-matric scholarships", elements=[
+            element(id=2, label="Email address", sensitive="EMAIL", filled=False), self.box,
+        ]))
+        assert r.action == "type" and r.element_id == 7 and r.text == "post-matric scholarships"
+
+    def test_presses_enter_then_stops(self):
+        typed = element(id=7, role="searchbox", label="Search", value="post-matric scholarships")
+        r = plan(req(task="search for post-matric scholarships", elements=[typed]))
+        assert r.action == "key" and r.key == "Enter"
+        r = plan(req(task="search for post-matric scholarships", elements=[typed],
+                     history=[{"action": "key", "element_id": 7, "ok": True}]))
+        assert r.action == "done"
+
+    def test_finds_a_search_box_by_its_label(self):
+        r = plan(req(task="look up NSP deadlines", elements=[element(id=3, label="Search schemes")]))
+        assert r.action == "type" and r.element_id == 3
+
+    def test_a_compound_task_is_not_a_bare_search(self):
+        assert search_query("search for scholarships and apply to the first") is None
+
+
+class TestCheckIsNotAlwaysAQuestion:
+    def test_ticking_a_box_is_an_instruction(self):
+        r = plan(req(task="Check the terms box and fill my details"))
+        assert r.action == "type"
+
+    def test_checking_a_status_is_a_question(self):
+        assert plan(req(task="check my application status")).action == "done"

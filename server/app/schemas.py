@@ -125,6 +125,9 @@ class StepRequest(BaseModel):
     #: Which profile keys the client holds — never their values.
     profile_keys: list[str] = Field(default_factory=list)
     history: list[HistoryEntry] = Field(default_factory=list)
+    #: The screen's text in reading order, every detected value already a token.
+    #: Level 2 only, where the redacted screenshot showing the same text is sent too.
+    visible_text: str | None = Field(default=None, max_length=8000)
 
 
 class StepResponse(BaseModel):

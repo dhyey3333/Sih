@@ -181,6 +181,8 @@ export function roleOf(el: Element): string {
         return 'slider';
       case 'file':
         return 'file';
+      case 'search':
+        return 'searchbox'; // its implicit ARIA role (HTML-AAM)
       default:
         return 'textbox';
     }

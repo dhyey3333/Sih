@@ -213,6 +213,7 @@ export class Agent {
               vault: this.vault,
               attempted: this.attempted,
               alreadyScrolled: this.history.some((h) => h.action === 'scroll' && h.ok && h.page === this.pageKey),
+              alreadySearched: this.history.some((h) => h.action === 'key' && h.ok),
             });
 
         let response: StepResponse;
@@ -222,6 +223,9 @@ export class Agent {
           callbacks.onPerceived(output);
           callbacks.onLog(`local → ${describeAction(response)} — ${local.because}`);
         } else {
+          if (output.visibleTextWithheld) {
+            callbacks.onLog(`Screen text held back this step (guard: ${output.visibleTextWithheld}).`);
+          }
           callbacks.onStatus('busy', `step ${step + 1}: asking the server…`);
           const networkStart = performance.now();
           response = await this.postStep(output.request);
@@ -319,7 +323,7 @@ export class Agent {
           continue;
         }
 
-        await this.executeStep(response, output.request.elements, callbacks, report, false);
+        await this.executeStep(response, output.request.elements, callbacks, report, false, local?.historyText);
         await sleep(this.options.settleMs ?? 700);
       }
 

@@ -141,6 +141,12 @@ class TestInboundGuard:
         payload["page"]["title"] = f"Profile of {FAKE['email']}"
         assert client.post("/v1/step", json=payload).status_code == 422
 
+    def test_rejects_raw_pii_in_the_screen_text(self, client):
+        payload = sanitized_request(visible_text=f"Status: Approved\nAadhaar {FAKE['aadhaar_spaced']}")
+        response = client.post("/v1/step", json=payload)
+        assert response.status_code == 422
+        assert response.json()["incidents"][0]["path"] == "visible_text"
+
     def test_the_rejection_never_echoes_the_value(self, client):
         payload = sanitized_request()
         payload["elements"][1]["label"] = f"Email ({FAKE['email']})"

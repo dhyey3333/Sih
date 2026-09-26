@@ -55,6 +55,21 @@ class TestUserMessage:
         message = build_user_message(StepRequest(**payload))
         assert message.count('"action": "scroll"') <= 8
 
+    def test_carries_the_screen_text_as_plain_lines(self):
+        payload = sanitized_request(visible_text='Status: "Approved"\nContact ⟦EMAIL_1⟧')
+        message = build_user_message(StepRequest(**payload))
+        assert 'SCREEN TEXT' in message
+        assert 'Status: "Approved"\nContact ⟦EMAIL_1⟧' in message  # not JSON-escaped
+
+    def test_says_when_the_page_goes_on(self):
+        payload = sanitized_request()
+        payload["page"] = {**payload["page"], "more_below": True}
+        assert "continues below" in build_user_message(StepRequest(**payload))
+        assert "continues below" not in build_user_message(StepRequest(**sanitized_request()))
+
+    def test_tells_the_model_to_answer_questions_verbatim(self):
+        assert "exactly as the" in SYSTEM_PROMPT and "SCREEN TEXT" in SYSTEM_PROMPT
+
 
 class TestParseAction:
     def test_parses_clean_json(self):

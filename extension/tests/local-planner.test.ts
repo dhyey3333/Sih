@@ -174,3 +174,58 @@ describe('ordering', () => {
     expect(decision?.response.element_id).toBe(2);
   });
 });
+
+describe('search', () => {
+  const box = field({ id: 7, role: 'searchbox', type: 'search', label: 'Search' });
+  const email = field({ id: 2, sensitive: 'EMAIL', sensitiveReason: 'autocomplete=email' });
+
+  it('types the query into the only search box, and nothing into the profile fields', () => {
+    const decision = plan([email, box], 'Search for post-matric scholarships');
+    expect(decision?.response).toMatchObject({ action: 'type', element_id: 7, text: 'post-matric scholarships' });
+  });
+
+  it('presses Enter once the query is in, then finishes', () => {
+    const typed = { ...box, value: 'post-matric scholarships' };
+    expect(plan([typed], 'search for post-matric scholarships')?.response).toMatchObject({ action: 'key', key: 'Enter' });
+    const done = planLocally({
+      task: 'search for post-matric scholarships', elements: [typed], vault, attempted: new Set([7]), alreadySearched: true,
+    });
+    expect(done?.response.action).toBe('done');
+  });
+
+  it('sanitizes the query before it goes into history', () => {
+    const decision = plan([box], `look up ${DEMO_PROFILE.EMAIL}`);
+    expect(decision?.response.text).toBe(DEMO_PROFILE.EMAIL); // typed locally, as asked
+    expect(decision?.historyText).toBe('⟦PROFILE.EMAIL⟧');
+  });
+
+  it('understands a Hindi search', () => {
+    expect(plan([box], 'छात्रवृत्ति खोजें')?.response.text).toBe('छात्रवृत्ति');
+  });
+
+  it.each([
+    ['two search boxes to choose between', [box, { ...box, id: 8 }], 'search for scholarships'],
+    ['no declared search box', [field({ label: 'Search' })], 'search for scholarships'],
+    ['a search that is only the first step', [box], 'search for scholarships and apply to the first one'],
+  ])('escalates with %s', (_, elements, task) => {
+    expect(plan(elements as PageElement[], task)).toBeNull();
+  });
+});
+
+describe('questions', () => {
+  const email = field({ id: 2, sensitive: 'EMAIL', sensitiveReason: 'autocomplete=email' });
+
+  it.each([
+    'What is the status of my application?',
+    'is my KYC complete',
+    'check whether the form is complete',
+    'Describe this page',
+    'क्या मेरा आवेदन स्वीकृत हुआ?',
+  ])('never answers "%s" by filling a field', (task) => {
+    expect(plan([email], task)).toBeNull();
+  });
+
+  it('still fills when "check" means ticking a box', () => {
+    expect(plan([email], 'check the terms box and fill my email')?.response.action).toBe('type');
+  });
+});

@@ -24,8 +24,9 @@ import type {
   WireRedaction,
 } from './protocol';
 import { Stopwatch } from './metrics';
-import { guardPayload, type EgressReport } from './pii/egress';
+import { describeIncidents, guardPayload, type EgressReport } from './pii/egress';
 import { clampLabel, sanitizeText, sanitizeUrl } from './pii/sanitize';
+import { buildVisibleText } from './pii/visible-text';
 import type { Vault } from './pii/vault';
 import { fuseDetections, redactedAreaRatio } from './redact/fuse';
 import type { VisionStats } from './vision';
@@ -96,6 +97,8 @@ export interface PipelineOutput {
   viewport: { w: number; h: number };
   /** Set by the agent when the vision layer ran. Reported in the metrics panel. */
   visionStats?: VisionStats;
+  /** Why the screen's text was held back this step (incident types, never values). */
+  visibleTextWithheld?: string;
   timings: ReturnType<Stopwatch['finish']>;
 }
 
@@ -161,6 +164,19 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     bbox: [round(d.bbox.x), round(d.bbox.y), round(d.bbox.w), round(d.bbox.h)],
     source: d.source,
   }));
+
+  // The screen as text, L2 only — the level at which its redacted pixels go anyway.
+  // Raw detections, not fused ones: fusion names a merged box after its strongest
+  // member, and a vision box widened into a text box must still withhold its block.
+  // Screened on its own first, so a guard hit costs this enrichment, not the step.
+  let visibleText: string | undefined;
+  let visibleTextWithheld: string | undefined;
+  if (disclosureLevel === 2 && snapshot.visibleText?.length) {
+    const text = buildVisibleText(snapshot.visibleText, raw, vault);
+    const check = guardPayload({ visible_text: text }, { secrets: vault.secrets() });
+    if (check.ok) visibleText = text || undefined;
+    else visibleTextWithheld = describeIncidents(check.incidents);
+  }
   watch.end('tokenize');
 
   const request: StepRequest = {
@@ -173,6 +189,7 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     redactions,
     profile_keys: vault.profileKeys(),
     history: input.history,
+    ...(visibleText ? { visible_text: visibleText } : {}),
   };
 
   if (disclosureLevel === 2) {
@@ -201,6 +218,7 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
     areaRatio,
     imageScale: rendered.scale,
     viewport: snapshot.viewport,
+    visibleTextWithheld,
     timings: watch.finish(),
   };
 }

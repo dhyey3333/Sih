@@ -43,6 +43,8 @@ export interface TextBlock {
    */
   dx: number;
   dy: number;
+  /** Union of the block's on-screen text, in top-level viewport CSS pixels. */
+  bbox: Rect;
 }
 
 const BLOCK_SELECTOR =
@@ -108,8 +110,24 @@ export function collectTextBlocks(root: ParentNode & Node, options: CollectOptio
     const container = parent.closest(BLOCK_SELECTOR) ?? parent;
     let block = blocks.get(container);
     if (!block) {
-      block = { text: '', pieces: [], container, labelContext: labelContextFor(container), dx, dy };
+      block = {
+        text: '',
+        pieces: [],
+        container,
+        labelContext: labelContextFor(container),
+        dx,
+        dy,
+        bbox: { x: left, y: top, w: rect.width, h: rect.height },
+      };
       blocks.set(container, block);
+    } else {
+      const b = block.bbox;
+      const right = Math.max(b.x + b.w, left + rect.width);
+      const bottom = Math.max(b.y + b.h, top + rect.height);
+      b.x = Math.min(b.x, left);
+      b.y = Math.min(b.y, top);
+      b.w = right - b.x;
+      b.h = bottom - b.y;
     }
 
     // A separator keeps "OTP" and "482913" from concatenating into one token,
