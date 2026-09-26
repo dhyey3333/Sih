@@ -11,6 +11,7 @@ import copy
 import pytest
 from fastapi.testclient import TestClient
 
+from app import main
 from app.main import app
 
 from .fixtures import FAKE, sanitized_request
@@ -238,3 +239,34 @@ class TestReadOnlyTasks:
         summary = body["summary"]
         assert "fields asks" not in summary and "field ask " not in summary
         assert "regions was" not in summary and "region were" not in summary
+
+
+class TestTheDoor:
+    def test_an_extension_origin_may_call(self, client):
+        r = client.options("/v1/step", headers={"Origin": "chrome-extension://abcdefghijklmnop",
+                                                 "Access-Control-Request-Method": "POST"})
+        assert r.headers.get("access-control-allow-origin") == "chrome-extension://abcdefghijklmnop"
+
+    def test_a_web_page_may_not(self, client):
+        r = client.options("/v1/step", headers={"Origin": "https://evil.example",
+                                                 "Access-Control-Request-Method": "POST"})
+        assert "access-control-allow-origin" not in r.headers
+
+    def test_a_token_is_required_once_set(self, client, monkeypatch):
+        monkeypatch.setattr(main, "PLANNER_TOKEN", "s3cret-for-tests")
+        assert client.post("/v1/step", json=sanitized_request()).status_code == 401
+        wrong = {"Authorization": "Bearer nope"}
+        assert client.post("/v1/step", json=sanitized_request(), headers=wrong).status_code == 401
+        right = {"Authorization": "Bearer s3cret-for-tests"}
+        assert client.post("/v1/step", json=sanitized_request(), headers=right).status_code == 200
+        assert client.get("/health").json()["auth_required"] is True
+
+    def test_refuses_something_too_big_to_be_a_step(self, client, monkeypatch):
+        monkeypatch.setattr(main, "MAX_BODY_BYTES", 1000)
+        assert client.post("/v1/step", json=sanitized_request(task="x" * 2000)).status_code == 413
+
+    def test_slows_a_runaway_loop(self, client, monkeypatch):
+        monkeypatch.setattr(main, "RATE_BURST", 3.0)
+        monkeypatch.setattr(main, "RATE_PER_SECOND", 0.001)
+        codes = [client.post("/v1/step", json=sanitized_request()).status_code for _ in range(5)]
+        assert codes[:3] == [200, 200, 200] and codes[3:] == [429, 429]

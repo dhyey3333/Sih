@@ -4,7 +4,7 @@
  * match the type the DOM layer detected for the field, or the user decides.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { checkValueTarget } from '../lib/type-gate';
+import { checkInventedValue, checkValueTarget } from '../lib/type-gate';
 import { Vault, type ProfileKey } from '../lib/pii/vault';
 import { DEMO_PROFILE } from '../lib/demo-profile';
 import type { WireElement } from '../lib/protocol';
@@ -61,5 +61,30 @@ describe('what it lets through', () => {
 
   it('an unknown token, which gate 1 refuses on its own', () => {
     expect(checkValueTarget('⟦AADHAAR_9⟧', el({ label: 'Search' }), vault).ok).toBe(true);
+  });
+});
+
+describe('a value the planner made up', () => {
+  it('is asked about when it looks like personal data', () => {
+    // What a 3B model actually sent: an address it could not have been told.
+    const verdict = checkInventedValue('ananya.ier@example.com', el({ label: 'Email address', sensitive: 'EMAIL' }));
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.valueType).toBe('EMAIL');
+      expect(verdict.question).toContain('made up');
+    }
+  });
+
+  it('uses the field label as context, so an invented date of birth is caught', () => {
+    expect(checkInventedValue('14/03/2001', el({ label: 'Date of birth', sensitive: 'DOB' })).ok).toBe(false);
+  });
+
+  it('lets ordinary text through', () => {
+    expect(checkInventedValue('Mumbai', el({ label: 'City', sensitive: 'ADDRESS' })).ok).toBe(true);
+    expect(checkInventedValue('post-matric scholarships', el({ role: 'searchbox' })).ok).toBe(true);
+  });
+
+  it('lets a token through — that is how a real value arrives', () => {
+    expect(checkInventedValue('⟦PROFILE.EMAIL⟧', el({ sensitive: 'EMAIL' })).ok).toBe(true);
   });
 });

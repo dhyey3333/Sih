@@ -15,6 +15,7 @@ a third-party model. The server refuses rather than forwards.
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import time
@@ -52,13 +53,64 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# The extension's origin is chrome-extension://<id>, which differs per install, so
-# a local dev server has little choice but to allow all. Tighten for deployment.
+#: Optional shared secret. Set it on any planner that is reachable from more than
+#: localhost; the side panel sends it as a bearer token.
+PLANNER_TOKEN = os.getenv("PLANNER_TOKEN", "")
+
+#: A step is a redacted JPEG plus JSON: a few hundred KB. Anything near this is not
+#: a step, and is refused before it is parsed.
+MAX_BODY_BYTES = int(os.getenv("MAX_BODY_BYTES", str(8 * 1024 * 1024)))
+
+#: Per client address. An agent takes about one step a second; this leaves room for
+#: several panels and none for a loop hammering a paid model endpoint.
+RATE_PER_SECOND = float(os.getenv("RATE_LIMIT_PER_SECOND", "5"))
+RATE_BURST = float(os.getenv("RATE_LIMIT_BURST", "20"))
+_buckets: dict[str, tuple[float, float]] = {}
+
+
+def _allow(client: str) -> bool:
+    """Token bucket: RATE_BURST steps at once, refilled at RATE_PER_SECOND."""
+    now = time.monotonic()
+    tokens, last = _buckets.get(client, (RATE_BURST, now))
+    tokens = min(RATE_BURST, tokens + (now - last) * RATE_PER_SECOND)
+    if tokens < 1:
+        _buckets[client] = (tokens, now)
+        return False
+    _buckets[client] = (tokens - 1, now)
+    return True
+
+
+@app.middleware("http")
+async def guard_the_door(request: Request, call_next):
+    if request.url.path.startswith("/v1/"):
+        if PLANNER_TOKEN and request.method != "OPTIONS":
+            supplied = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+            if not hmac.compare_digest(supplied.encode(), PLANNER_TOKEN.encode()):
+                return JSONResponse(status_code=401, content={"detail": "Missing or wrong access token."})
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
+            return JSONResponse(status_code=413, content={"detail": "Request too large to be a step."})
+        if request.method == "POST" and not _allow(request.client.host if request.client else "?"):
+            return JSONResponse(status_code=429, content={"detail": "Too many steps; slow down."})
+    return await call_next(request)
+
+
+# Who may call from a browser. The extension's origin is <scheme>-extension://<id>,
+# and the id differs per install, so the default is any extension origin — which
+# still keeps an arbitrary web page from using a running planner as a free relay to
+# the model. ALLOWED_ORIGINS (comma-separated, or "*") overrides it. CORS is not
+# authentication — anything outside a browser ignores it; PLANNER_TOKEN is that.
+#
+# Added after the guard so that it wraps it: a 401 or 429 must carry CORS headers,
+# or the browser hides it and the panel reports "cannot reach the planner" instead.
+_EXTENSION_ORIGIN = r"^(chrome-extension|moz-extension|safari-web-extension)://[A-Za-z0-9._-]+$"
+_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")],
+    allow_origins=_origins,
+    allow_origin_regex=None if _origins else _EXTENSION_ORIGIN,
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -80,6 +132,7 @@ async def health() -> dict:
         "planner": "vlm" if _config.configured else "rule-based",
         "strategy": STRATEGY if _config.configured else None,
         "image": _config.image if _config.configured else None,
+        "auth_required": bool(PLANNER_TOKEN),
     }
 
 

@@ -23,7 +23,7 @@ import type { Detection, DomSnapshot, ImageCandidate, PiiType, Rect } from '../p
 import type { Vault } from '../pii/vault';
 import { ChangeDetector } from './change';
 import { OcrEngine } from './ocr';
-import { UiDetector, type VisionElement } from './ui-detector';
+import { UiDetector, undeclaredControls, type VisionElement } from './ui-detector';
 import {
   createSession,
   tensorFrom,
@@ -291,7 +291,7 @@ export class VisionLayer {
     // the DOM offers the agent nothing to act on. A no-op until a model is bundled.
     const ui = await this.ui.detect(image, imageWidth, imageHeight, dpr, vault);
     this.cache.push(...ui.detections);
-    this.elementCache = ui.elements;
+    this.elementCache = undeclaredControls(ui.elements, snapshot.elements);
 
     // Pass 4: read text out of image regions. This is the only thing that finds PII
     // in an image the page never labelled.

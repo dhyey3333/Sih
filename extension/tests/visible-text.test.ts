@@ -65,6 +65,45 @@ describe('buildVisibleText', () => {
     expect(out).not.toContain('Raghunath');
   });
 
+  it('lets a vague pixel box over a value the text layer tokenized use that token', () => {
+    const text = `Registered email ${FAKE.email}`;
+    const out = buildVisibleText(
+      [block(text, { spans: [span(text, FAKE.email, 'EMAIL')] })],
+      [
+        detection({ source: 'dom-text', type: 'EMAIL', bbox: { x: 120, y: 2, w: 170, h: 16 }, token: '⟦EMAIL_1⟧' }),
+        detection({ bbox: { x: 118, y: 0, w: 176, h: 20 }, token: '⟦GENERIC_9⟧' }),
+      ],
+      vault,
+    );
+    expect(out).toMatch(/^Registered email ⟦EMAIL_\d+⟧$/);
+    expect(out).not.toContain('GENERIC');
+  });
+
+  it('still withholds a block when the vague box is over something the text layer found clean', () => {
+    const out = buildVisibleText(
+      [block('Last date to apply 31 October 2026')],
+      [
+        detection({ source: 'dom-text', type: 'EMAIL', bbox: { x: 0, y: 200, w: 50, h: 16 } }), // elsewhere
+        detection({ bbox: { x: 150, y: 2, w: 120, h: 16 }, token: '⟦GENERIC_3⟧' }),
+      ],
+      vault,
+    );
+    expect(out).toBe('⟦GENERIC_3⟧');
+  });
+
+  it('is not fooled by one known value inside a large vague box', () => {
+    const text = `Beneficiary Raghunath Kulkarni, contact ${FAKE.email}`;
+    const out = buildVisibleText(
+      [block(text, { spans: [span(text, FAKE.email, 'EMAIL')] })],
+      [
+        detection({ source: 'dom-text', type: 'EMAIL', bbox: { x: 200, y: 2, w: 90, h: 16 } }),
+        detection({ bbox: { x: 0, y: 0, w: 300, h: 20 }, token: '⟦GENERIC_5⟧' }), // the whole line
+      ],
+      vault,
+    );
+    expect(out).toBe('⟦GENERIC_5⟧');
+  });
+
   it('does the same for OCR boxes', () => {
     const out = buildVisibleText([block('Card on file')], [detection({ source: 'ocr', type: 'CARD', token: '⟦CARD_2⟧' })], vault);
     expect(out).toBe('⟦CARD_2⟧');

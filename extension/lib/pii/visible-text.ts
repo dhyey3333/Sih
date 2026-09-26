@@ -18,6 +18,11 @@
  *     and then through the egress guard like every other string.
  *
  * Faces don't count for (2): a face beside a caption says nothing about the caption.
+ * Nor does a vague pixel box ("this looks like personal text", GENERIC) that sits on a
+ * value the text layer already found: the text layer read those exact characters and
+ * tokenized them, so the block goes with that token — `⟦PROFILE.EMAIL⟧`, not an
+ * anonymous `⟦GENERIC_1⟧`. A vague box over text the text layer found clean still
+ * withholds it: that is the case of a third party's name, which only pixels caught.
  */
 
 import type { Detection, Rect, VisibleTextBlock } from '../protocol';
@@ -37,8 +42,12 @@ export function buildVisibleText(
   vault: Vault,
   maxChars = MAX_VISIBLE_TEXT,
 ): string {
+  const fromText = detections.filter((d) => d.source === 'dom-text' || d.source === 'dom-field');
   const pixelOnly = detections.filter(
-    (d) => (d.source === 'vision' || d.source === 'ocr') && d.type !== 'FACE',
+    (d) =>
+      (d.source === 'vision' || d.source === 'ocr') &&
+      d.type !== 'FACE' &&
+      !(d.type === 'GENERIC' && d.source === 'vision' && fromText.some((t) => explains(t.bbox, d.bbox))),
   );
 
   const lines: string[] = [];
@@ -98,4 +107,16 @@ function covers(detection: Rect, block: Rect): boolean {
   const overlap = w * h;
   const smaller = Math.min(detection.w * detection.h, block.w * block.h);
   return smaller > 0 && overlap / smaller >= COVER_RATIO;
+}
+
+/**
+ * A text-layer finding that accounts for a vague pixel box: it fills most of it.
+ * One-directional on purpose — a large box over a paragraph is not explained by the
+ * one email inside it, because the rest of what it covers may be a name.
+ */
+function explains(finding: Rect, pixel: Rect): boolean {
+  const w = Math.min(finding.x + finding.w, pixel.x + pixel.w) - Math.max(finding.x, pixel.x);
+  const h = Math.min(finding.y + finding.h, pixel.y + pixel.h) - Math.max(finding.y, pixel.y);
+  if (w <= 0 || h <= 0) return false;
+  return (w * h) / (pixel.w * pixel.h) >= 0.5;
 }

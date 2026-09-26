@@ -115,6 +115,7 @@ const ui = {
   logCount: $('log-count'),
 
   serverUrl: $<HTMLInputElement>('server-url'),
+  serverToken: $<HTMLInputElement>('server-token'),
   checkServer: $<HTMLButtonElement>('check-server'),
   serverStatus: $('server-status'),
 
@@ -410,6 +411,8 @@ function lightBox(id: string | null): void {
 
 const PROFILE_STORAGE_KEY = 'privagent.profile';
 const SERVER_STORAGE_KEY = 'privagent.serverUrl';
+/** A credential: kept in session storage (memory, wiped on close), like the profile. */
+const TOKEN_STORAGE_KEY = 'privagent.serverToken';
 
 function buildProfileForm(): void {
   ui.profile.replaceChildren();
@@ -467,6 +470,9 @@ async function restoreServerUrl(): Promise<void> {
     const stored = await browser.storage?.local?.get(SERVER_STORAGE_KEY);
     const url = stored?.[SERVER_STORAGE_KEY] as string | undefined;
     if (url) ui.serverUrl.value = url;
+    const session = await browser.storage?.session?.get(TOKEN_STORAGE_KEY);
+    const token = session?.[TOKEN_STORAGE_KEY] as string | undefined;
+    if (token) ui.serverToken.value = token;
   } catch {
     /* keep the default */
   }
@@ -725,6 +731,7 @@ function makeAgent(): Agent {
     {
       targetTabId: PINNED_TAB,
       serverUrl: ui.serverUrl.value.trim(),
+      serverToken: ui.serverToken.value.trim() || undefined,
       maxSteps: 12,
       vision: ui.visionToggle.checked,
       ocr: ui.ocrToggle.checked,
@@ -835,11 +842,19 @@ async function checkServer(): Promise<void> {
   try {
     const response = await fetch(`${url}/health`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const body = (await response.json()) as { planner?: string; vlm_model?: string | null };
-    ui.serverStatus.textContent = body.vlm_model
+    const body = (await response.json()) as {
+      planner?: string;
+      vlm_model?: string | null;
+      auth_required?: boolean;
+    };
+    const auth = body.auth_required
+      ? ui.serverToken.value.trim() ? ' · token set' : ' · needs an access token'
+      : '';
+    ui.serverStatus.textContent = (body.vlm_model
       ? `Connected · VLM: ${body.vlm_model}`
-      : `Connected · ${body.planner ?? 'unknown'} planner (no VLM configured)`;
+      : `Connected · ${body.planner ?? 'unknown'} planner (no VLM configured)`) + auth;
     await browser.storage?.local?.set({ [SERVER_STORAGE_KEY]: url });
+    await browser.storage?.session?.set({ [TOKEN_STORAGE_KEY]: ui.serverToken.value.trim() });
   } catch (error) {
     ui.serverStatus.textContent = `Unreachable — ${error instanceof Error ? error.message : error}`;
   }

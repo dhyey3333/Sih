@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeYolo, DETECTOR_CLASSES, VISION_ID_BASE } from '../lib/vision/ui-detector';
+import { decodeYolo, DETECTOR_CLASSES, undeclaredControls, VISION_ID_BASE } from '../lib/vision/ui-detector';
 
 /**
  * The decoder's job is to turn a channel-major tensor into boxes in CSS pixels.
@@ -133,5 +133,23 @@ describe('class contract', () => {
   it('keeps vision element ids clear of DOM ids', () => {
     // DOM ids start at 1 and are capped at 160 by the snapshot builder.
     expect(VISION_ID_BASE).toBeGreaterThan(160);
+  });
+});
+
+describe('undeclaredControls — one name per control', () => {
+  const box = (x: number, y: number, w: number, h: number) => ({ x, y, w, h });
+  const found = [
+    { id: 1000, role: 'button', bbox: box(301, 294, 83, 36), confidence: 0.9 }, // the DOM's Sign in button
+    { id: 1001, role: 'textbox', bbox: box(300, 152, 680, 34), confidence: 0.9 }, // the DOM's email field
+    { id: 1002, role: 'button', bbox: box(900, 600, 90, 36), confidence: 0.8 }, // drawn on a canvas
+  ];
+  const declared = [{ bbox: box(301, 293, 83, 37) }, { bbox: box(301, 153, 677, 32) }];
+
+  it('drops a pixel copy of a control the DOM declares', () => {
+    expect(undeclaredControls(found, declared).map((e) => e.id)).toEqual([1002]);
+  });
+
+  it('keeps everything on a canvas app, where the DOM declares nothing', () => {
+    expect(undeclaredControls(found, [])).toHaveLength(3);
   });
 });

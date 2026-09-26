@@ -28,7 +28,7 @@ import { DEMO_PROFILE } from './demo-profile';
 import { planLocally } from './local-planner';
 import { sendToBackground, type ActionResult, type PerceiveResult, type ResolvedAction } from './messaging';
 import { runPipeline, type PipelineOutput } from './pipeline';
-import { checkValueTarget, friendlyType } from './type-gate';
+import { checkInventedValue, checkValueTarget, friendlyType } from './type-gate';
 import {
   IRREVERSIBLE_HINTS,
   type HistoryEntry,
@@ -36,13 +36,16 @@ import {
   type StepResponse,
   type WireElement,
 } from './protocol';
+import { sanitizeText } from './pii/sanitize';
 import { TOKEN_PATTERN, type Vault } from './pii/vault';
-import { loadImage } from './redact/render';
+import { effectiveDpr, loadImage } from './redact/render';
 import type { VisionLayer } from './vision';
 import { VISION_ID_BASE, type VisionElement } from './vision/ui-detector';
 
 export interface AgentOptions {
   serverUrl: string;
+  /** Bearer token, when the planner is started with PLANNER_TOKEN. */
+  serverToken?: string;
   maxSteps?: number;
   /** Pause between steps, to let the page settle after an action. */
   settleMs?: number;
@@ -134,10 +137,25 @@ export class Agent {
   private readonly attempted = new Set<number>();
   /** The page those ids belong to. A different page means different elements. */
   private pageKey = '';
+  /** The request to the planner in flight, so Stop can cancel it. */
+  private inflight?: AbortController;
 
-  /** Record a step, tagged with the page it happened on. */
+  /**
+   * Record a step, tagged with the page it happened on.
+   *
+   * History goes back to the server every step, so it is a wire field like any other
+   * and goes through the text sanitizer like any other: a literal the planner typed,
+   * or an executor error quoting a resolved dropdown option, is tokenized here rather
+   * than tripping the egress guard on the next step — which is what stopped a run
+   * cold in our task benchmark.
+   */
   private remember(entry: HistoryEntry): void {
-    this.history.push({ ...entry, page: this.pageKey });
+    this.history.push({
+      ...entry,
+      ...(entry.text ? { text: sanitizeText(entry.text, this.vault).text } : {}),
+      ...(entry.error ? { error: sanitizeText(entry.error, this.vault).text } : {}),
+      page: this.pageKey,
+    });
   }
 
   constructor(
@@ -150,8 +168,14 @@ export class Agent {
     private readonly vision: VisionLayer,
   ) {}
 
+  /**
+   * Stop now, not after the model answers. A local model can take a minute over one
+   * step; Stop that waits for it is a Stop that does not work — and an agent still
+   * running after the user stopped it is one that may yet act.
+   */
   stop(): void {
     this.stopped = true;
+    this.inflight?.abort();
   }
 
   get isStopped(): boolean {
@@ -353,6 +377,9 @@ export class Agent {
     step: number,
   ): Promise<PipelineOutput> {
     const image = await loadImage(perceived.imageDataUrl);
+    // Before anything maps a box between CSS and image pixels: trust the capture's
+    // own size over the page's claimed pixel ratio (lib/redact/render.ts).
+    perceived.snapshot.dpr = effectiveDpr(image.naturalWidth, perceived.snapshot.viewport.w, perceived.snapshot.dpr);
 
     // The vision layer runs before the pipeline, so its boxes go through the same
     // fusion, tokenization and egress guard as the DOM layer's — one path, not two.
@@ -397,13 +424,19 @@ export class Agent {
     const base = this.options.serverUrl.replace(/\/$/, '');
 
     let response: Response;
+    this.inflight = new AbortController();
     try {
       response = await fetch(`${base}/v1/step`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.options.serverToken ? { Authorization: `Bearer ${this.options.serverToken}` } : {}),
+        },
         body: JSON.stringify(request),
+        signal: this.inflight.signal,
       });
     } catch (error) {
+      if (this.stopped) throw new AgentStopped();
       // `fetch` rejects with a bare "Failed to fetch" when nothing is listening,
       // which tells the user nothing about what to do next. Every other failure in
       // this file names its cause; this one has to as well, because "the planner is
@@ -415,6 +448,12 @@ export class Agent {
       );
     }
 
+    if (response.status === 401) {
+      throw new Error('The planner needs an access token, or rejected this one. Set it under Planner server.');
+    }
+    if (response.status === 429) {
+      throw new Error('The planner is rate-limiting this browser. Wait a moment and run again.');
+    }
     if (response.status === 422) {
       const body = (await response.json()) as { detail?: string; incidents?: Array<{ type: string }> };
       const types = [...new Set((body.incidents ?? []).map((i) => i.type))].join(', ');
@@ -424,7 +463,12 @@ export class Agent {
       throw new Error(`Server returned ${response.status}. Is it running at ${this.options.serverUrl}?`);
     }
 
-    return (await response.json()) as StepResponse;
+    try {
+      return (await response.json()) as StepResponse;
+    } catch (error) {
+      if (this.stopped) throw new AgentStopped();
+      throw error;
+    }
   }
 
   private async executeStep(
@@ -438,23 +482,42 @@ export class Agent {
   ): Promise<void> {
     const element = elements.find((e) => e.id === response.element_id);
 
-    // Gate 4: a real value only goes into a field that asks for that kind of value.
+    // Never a password, whoever asks and however it is phrased — not even with a
+    // confirmation. A password the agent types is either a guess or one it saw, and
+    // it should have seen none. The prompt says so; a 3B model typed an invented
+    // address into one anyway, so the client says so too.
+    if (response.action === 'type' && (element?.sensitive === 'PASSWORD' || element?.type === 'password')) {
+      this.remember({ action: 'type', element_id: response.element_id, ok: false,
+        error: 'refused: the agent never types into a password field' });
+      callbacks.onLog('Blocked: the agent never types into a password field.', 'err');
+      callbacks.onStep(report);
+      return;
+    }
+
+    // Gate 4: a real value only goes into a field that asks for that kind of value,
+    // and a value that looks personal but arrived as a literal was made up.
     // Skipped for an answer the user just typed for this very field.
     if (!preApproved && (response.action === 'type' || response.action === 'select')) {
       const carried = response.action === 'type' ? (response.text ?? '') : (response.option ?? '');
-      const verdict = checkValueTarget(carried, element, this.vault);
+      const tokenVerdict = checkValueTarget(carried, element, this.vault);
+      const verdict = tokenVerdict.ok ? checkInventedValue(carried, element) : tokenVerdict;
       if (!verdict.ok) {
         const proceed = await callbacks.confirm(verdict.question);
         this.throwIfStopped();
         if (!proceed) {
+          const invented = tokenVerdict.ok;
           this.remember({
             action: response.action,
             element_id: response.element_id,
             ok: false,
-            error: `refused: the user's ${verdict.valueType} value does not belong in this field`,
+            error: invented
+              ? `refused: a ${verdict.valueType} the planner made up, not one from the profile`
+              : `refused: the user's ${verdict.valueType} value does not belong in this field`,
           });
           callbacks.onLog(
-            `Blocked: your ${friendlyType(verdict.valueType)} was not typed into a field that did not ask for it.`,
+            invented
+              ? `Blocked: a ${friendlyType(verdict.valueType)} the planner made up was not typed.`
+              : `Blocked: your ${friendlyType(verdict.valueType)} was not typed into a field that did not ask for it.`,
             'err',
           );
           callbacks.onStep(report);

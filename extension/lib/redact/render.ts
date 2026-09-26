@@ -264,3 +264,22 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
     img.src = src;
   });
 }
+
+/**
+ * The ratio between the captured image and the page's CSS pixels, measured.
+ *
+ * `devicePixelRatio` is what the page *says*. The capture is what the pixels *are*,
+ * and the two can disagree: device emulation (DevTools, or an automation driver that
+ * pins the ratio to 1 on a Retina screen), a window dragged between displays of
+ * different density between the snapshot and the capture. When they disagree every
+ * DOM box lands in the wrong place — at half its position on a 2× screen — and the
+ * value it was meant to cover is left legible in the image the server receives.
+ * That happened, in our own task benchmark, to a typed email address.
+ *
+ * So the capture wins whenever the two differ by more than rounding.
+ */
+export function effectiveDpr(imageWidth: number, viewportWidth: number, reported: number): number {
+  if (!(imageWidth > 0) || !(viewportWidth > 0)) return reported;
+  const measured = imageWidth / viewportWidth;
+  return Math.abs(measured - reported) / reported > 0.03 ? Math.round(measured * 1000) / 1000 : reported;
+}

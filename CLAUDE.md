@@ -45,7 +45,8 @@ A Chrome + Firefox extension that reads the current tab with small on-device vis
 - Server (from `server/`): `uv sync --dev`, `uv run uvicorn app.main:app --reload --port 8000`, `uv run pytest`. To exercise the VLM path with no weights: `uv run uvicorn tools.mock_vlm:app --port 8100`, then set `VLM_BASE_URL=http://localhost:8100/v1 VLM_MODEL=mock-vl`
 - Demo site: `python3 -m http.server 5173 --directory demo-site`
 - ML (from `ml/`): `uv sync && uv run playwright install chromium`, `uv run python -m synth.generate --out data/synth --per-recipe 120`, `uv run python -m synth.preview --data data/synth --split train`, `uv sync --group train && uv run python train.py --data data/synth/data.yaml --epochs 80`, `uv run --group dev pytest`
-- Eval (from the repo root): `uv sync && uv run python -m eval.run_all` — needs `extension && npm run build:domcheck` first; writes `eval/results/RESULTS.md`. `uv run python -m eval.smoke_extension` boots the packed Chrome build in a real browser (needs `npm run build` first).
+- Eval (from the repo root): `uv sync && uv run python -m eval.run_all` — needs `extension && npm run build:domcheck` first; writes `eval/results/RESULTS.md`. `uv run python -m eval.smoke_extension` boots the packed Chrome build in a real browser (needs `npm run build` first). `uv run python -m eval.run_tasks` is the end-to-end task benchmark (needs `npm run build`; writes `eval/results/tasks-*.json`); add `--vlm ollama --strategy rules-first --image auto` for the local model, `--only <task-id>…` for a subset.
+- Task-page previews: `python3 -m http.server 5188 --directory eval/tasks/pages` (also `task-pages` in `.claude/launch.json`)
 
 ## Gotchas
 - MV3 forbids remotely hosted code: bundle onnxruntime-web's `.wasm`/`.mjs` files in the extension, point `ort.env.wasm.wasmPaths` at them, and allow `'wasm-unsafe-eval'` in the extension CSP.

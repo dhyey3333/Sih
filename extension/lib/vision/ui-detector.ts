@@ -317,3 +317,30 @@ export function decodeYolo(
   }
   return kept.sort((a, b) => b.score - a.score).slice(0, 120);
 }
+
+/**
+ * Pixel-found controls the DOM has not already declared.
+ *
+ * A control the DOM declares belongs to the DOM: its id resolves to the element, its
+ * label and type are known, and gate 4 can check what goes into it. A second copy
+ * from pixels only gives the model two names for one thing, and on a login page a
+ * 3B model duly typed into the nameless copy. On a canvas app the DOM declares
+ * nothing, so every pixel control survives — which is what this layer is for.
+ */
+export function undeclaredControls(found: VisionElement[], declared: Array<{ bbox: Rect }>): VisionElement[] {
+  return found.filter((v) => !declared.some((d) => sameControl(v.bbox, d.bbox)));
+}
+
+function sameControl(a: Rect, b: Rect): boolean {
+  const cx = a.x + a.w / 2;
+  const cy = a.y + a.h / 2;
+  const tolerance = 4;
+  if (cx >= b.x - tolerance && cx <= b.x + b.w + tolerance && cy >= b.y - tolerance && cy <= b.y + b.h + tolerance) {
+    return true;
+  }
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  if (w <= 0 || h <= 0) return false;
+  const inter = w * h;
+  return inter / (a.w * a.h + b.w * b.h - inter) > 0.3;
+}

@@ -19,6 +19,7 @@
  */
 
 import type { PiiType, WireElement } from './protocol';
+import { scanText } from './pii/validators';
 import { TOKEN_PATTERN, type Vault } from './pii/vault';
 
 export type GateVerdict =
@@ -93,4 +94,31 @@ export function checkValueTarget(
     };
   }
   return { ok: true };
+}
+
+/**
+ * A literal that looks like personal data, bound for a field that holds it.
+ *
+ * Real values reach the server only as tokens — the task, the labels and the screen
+ * text are all sanitized first — so a literal email, phone or ID number in a `type`
+ * action is one the planner did not get from the user. It is a guess at best, and
+ * at worst one it read off an image it should not have been able to read. Asked,
+ * never typed silently. (A 3B model did exactly this in our task benchmark.)
+ */
+export function checkInventedValue(text: string, element: WireElement | undefined): GateVerdict {
+  const literal = text.replace(TOKEN_PATTERN, ' ');
+  const context = [element?.label, element?.placeholder].filter(Boolean).join(' ');
+  const match = scanText(literal, { context })[0];
+  if (!match) return { ok: true };
+  const where = element
+    ? `“${(element.label || element.placeholder || `field ${element.id}`).slice(0, 60)}”`
+    : 'a control found on screen';
+  return {
+    ok: false,
+    valueType: match.type,
+    fieldType: element?.sensitive,
+    question:
+      `The planner wants to type a ${friendlyType(match.type)} it made up into ${where} — ` +
+      `not one from your profile, which it only ever sees as a token. Allow?`,
+  };
 }
