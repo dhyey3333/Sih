@@ -28,7 +28,7 @@ import { DEMO_PROFILE } from './demo-profile';
 import { planLocally } from './local-planner';
 import { sendToBackground, type ActionResult, type PerceiveResult, type ResolvedAction } from './messaging';
 import { runPipeline, type PipelineOutput } from './pipeline';
-import { checkInventedValue, checkValueTarget, friendlyType } from './type-gate';
+import { checkInventedValue, checkRetype, checkValueTarget, friendlyType } from './type-gate';
 import {
   IRREVERSIBLE_HINTS,
   type HistoryEntry,
@@ -499,27 +499,25 @@ export class Agent {
     // Skipped for an answer the user just typed for this very field.
     if (!preApproved && (response.action === 'type' || response.action === 'select')) {
       const carried = response.action === 'type' ? (response.text ?? '') : (response.option ?? '');
-      const tokenVerdict = checkValueTarget(carried, element, this.vault, report.output.request.page.origin);
-      const verdict = tokenVerdict.ok ? checkInventedValue(carried, element) : tokenVerdict;
+      // First question wins: a value in the wrong kind of field, or from another site;
+      // a personal-looking value made up; one of the user's values overwritten; and
+      // what this run already typed there, typed over.
+      const verdict = [
+        () => checkValueTarget(carried, element, this.vault, report.output.request.page.origin),
+        () => checkInventedValue(carried, element),
+        () => (response.action === 'type' ? checkRetype(carried, element, this.lastTyped(response.element_id)) : { ok: true as const }),
+      ].reduce<ReturnType<typeof checkValueTarget>>((found, next) => (found.ok ? next() : found), { ok: true });
       if (!verdict.ok) {
         const proceed = await callbacks.confirm(verdict.question);
         this.throwIfStopped();
         if (!proceed) {
-          const invented = tokenVerdict.ok;
           this.remember({
             action: response.action,
             element_id: response.element_id,
             ok: false,
-            error: invented
-              ? `refused: a ${verdict.valueType} the planner made up, not one from the profile`
-              : `refused: the user's ${verdict.valueType} value does not belong in this field`,
+            error: `refused by the user: ${verdict.refused}`,
           });
-          callbacks.onLog(
-            invented
-              ? `Blocked: a ${friendlyType(verdict.valueType)} the planner made up was not typed.`
-              : `Blocked: your ${friendlyType(verdict.valueType)} was not typed into a field that did not ask for it.`,
-            'err',
-          );
+          callbacks.onLog(`Blocked: ${verdict.refused}`, 'err');
           callbacks.onStep(report);
           return;
         }
@@ -608,6 +606,16 @@ export class Agent {
         throw new Error(`Stopped: the planner asked to ${describeAction(response)} three times, and it failed each time.`);
       }
     }
+  }
+
+  /** What this run last typed into an element on this page, as history recorded it. */
+  private lastTyped(elementId: number | undefined): string | undefined {
+    if (elementId === undefined) return undefined;
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const h = this.history[i]!;
+      if (h.page === this.pageKey && h.element_id === elementId && h.action === 'type' && h.ok) return h.text;
+    }
+    return undefined;
   }
 
   private failedInARow(response: StepResponse): number {

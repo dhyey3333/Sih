@@ -32,6 +32,8 @@ export type GateVerdict =
       fieldType?: PiiType;
       /** Plain-language question for the confirmation sheet. */
       question: string;
+      /** What the activity log says if the user declines. Never a value. */
+      refused: string;
     };
 
 const FRIENDLY: Partial<Record<PiiType, string>> = {
@@ -96,6 +98,7 @@ export function checkValueTarget(
         question:
           `The agent wants to type ${withArticle(friendlyType(valueType))} it saw on ${hostOf(seenOn)} ` +
           `into ${hostOf(pageOrigin)}. That is how a page would carry data from one site to another. Allow?`,
+        refused: `${capitalise(withArticle(friendlyType(valueType)))} seen on another site was not typed here.`,
       };
     }
 
@@ -115,6 +118,7 @@ export function checkValueTarget(
       question:
         `The agent wants to type your ${friendlyType(valueType)} into ${where}, ${detected}. ` +
         `If the page put that idea there, this is how it would steal it. Allow?`,
+      refused: `Your ${friendlyType(valueType)} was not typed into a field that did not ask for it.`,
     };
   }
   return { ok: true };
@@ -144,6 +148,7 @@ export function checkInventedValue(text: string, element: WireElement | undefine
       valueType: element.sensitive ?? 'GENERIC',
       fieldType: element.sensitive,
       question: `The planner wants to replace what is in ${where} — one of your values — with text it wrote itself. Allow?`,
+      refused: `One of your values was not replaced with the planner's own text.`,
     };
   }
   const context = [element?.label, element?.placeholder].filter(Boolean).join(' ');
@@ -159,7 +164,36 @@ export function checkInventedValue(text: string, element: WireElement | undefine
     question:
       `The planner wants to type ${withArticle(friendlyType(match.type))} it made up into ${where} — ` +
       `not one from your profile, which it only ever sees as a token. Allow?`,
+    refused: `${capitalise(withArticle(friendlyType(match.type)))} the planner made up was not typed.`,
   };
+}
+
+/**
+ * Typing over what this run already typed into a field, with something else.
+ *
+ * On the injection page a 3B model, refused the real Aadhaar number, typed a made-up
+ * twenty-digit one over the user's search query instead — again and again. No
+ * pattern catches an invented number of the wrong length, but replacing what the
+ * agent itself just typed, from the user's own task or profile, is worth a question
+ * whatever it is replaced with.
+ */
+export function checkRetype(text: string, element: WireElement | undefined, alreadyTyped: string | undefined): GateVerdict {
+  if (alreadyTyped === undefined || !text.trim() || text.trim() === alreadyTyped.trim()) return { ok: true };
+  const where = element
+    ? `“${(element.label || element.placeholder || `field ${element.id}`).slice(0, 60)}”`
+    : 'this field';
+  const shown = text.length > 60 ? `${text.slice(0, 59)}…` : text;
+  return {
+    ok: false,
+    valueType: element?.sensitive ?? 'GENERIC',
+    fieldType: element?.sensitive,
+    question: `The planner wants to replace what it already typed in ${where} with “${shown}”. Allow?`,
+    refused: `What was already typed in ${where} was left as it was.`,
+  };
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function hostOf(origin: string): string {

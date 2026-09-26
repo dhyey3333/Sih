@@ -180,8 +180,14 @@ async def step(request: StepRequest, http_request: Request) -> JSONResponse:
         # type, a value the task itself states, and running a search the task
         # spelled out. Every judgement call — a question, a choice nobody stated,
         # whether the task is finished — goes to the model.
+        searched = search_query(request.task) is not None
         if certain is not None and (
-            certain.action in {"type", "select"} or (certain.action == "key" and search_query(request.task))
+            certain.action in {"type", "select"}
+            or (certain.action == "key" and searched)
+            # The search the task spelled out has run: finishing is not a judgement call.
+            # Handing it to a small model anyway let a page's note to "AI assistants"
+            # keep it busy until the step budget ran out.
+            or (certain.action == "done" and searched and any(h.action == "key" and h.ok for h in request.history))
         ):
             response = certain
         else:

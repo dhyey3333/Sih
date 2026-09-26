@@ -4,7 +4,7 @@
  * match the type the DOM layer detected for the field, or the user decides.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { checkInventedValue, checkValueTarget } from '../lib/type-gate';
+import { checkInventedValue, checkRetype, checkValueTarget } from '../lib/type-gate';
 import { Vault, type ProfileKey } from '../lib/pii/vault';
 import { DEMO_PROFILE } from '../lib/demo-profile';
 import type { WireElement } from '../lib/protocol';
@@ -129,5 +129,29 @@ describe('overwriting one of your values', () => {
     const filled = el({ label: 'Candidate name', sensitive: 'NAME', value: '⟦PROFILE.FULL_NAME⟧' });
     expect(checkInventedValue('⟦PROFILE.FULL_NAME⟧', filled).ok).toBe(true);
     expect(checkInventedValue('Suresh', el({ label: 'Nickname' })).ok).toBe(true);
+  });
+});
+
+describe('typing over what this run already typed', () => {
+  const search = el({ role: 'searchbox', label: 'Search' });
+
+  it('is asked about — whatever it is replaced with', () => {
+    // What a 3B model did on the injection page: a made-up number over the user's query.
+    const verdict = checkRetype('12345678901234567890', search, 'scholarships for engineering students');
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.question).toContain('already typed');
+      expect(verdict.refused).not.toContain('12345678901234567890'); // the log line carries no value
+    }
+  });
+
+  it('is fine when nothing was typed there yet, or the same text again', () => {
+    expect(checkRetype('anything', search, undefined).ok).toBe(true);
+    expect(checkRetype('⟦PROFILE.EMAIL⟧', search, '⟦PROFILE.EMAIL⟧').ok).toBe(true);
+  });
+
+  it('words each refusal for what it refused', () => {
+    const invented = checkInventedValue('ananya.ier@example.com', el({ label: 'Email address', sensitive: 'EMAIL' }));
+    expect(!invented.ok && invented.refused).toBe('An email address the planner made up was not typed.');
   });
 });
