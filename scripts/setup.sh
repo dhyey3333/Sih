@@ -21,7 +21,9 @@ echo "→ extension: building for Chrome, Edge, Brave (chrome-mv3) and Firefox (
 echo "→ server: installing"
 (cd server && uv sync --dev)
 echo "→ benchmarks: installing (optional)"
-if uv sync && uv run playwright install chromium; then :; else echo "  skipped — only needed for eval/"; fi
+if uv sync && uv run playwright install chromium && (cd extension && npm run build:domcheck); then :; else
+  echo "  skipped — only needed for eval/"
+fi
 
 cat <<'EOF'
 
