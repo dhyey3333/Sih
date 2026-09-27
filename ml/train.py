@@ -154,7 +154,7 @@ def main() -> None:
     }
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    (args.out.parent / "report.json").write_text(json.dumps(report, indent=2))
+    (args.out.parent / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 
 

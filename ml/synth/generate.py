@@ -28,7 +28,7 @@ from .recipes import Recipe, split_recipes
 VIEWPORTS = ((1366, 768), (1440, 900), (1920, 1080), (1280, 800), (1536, 864))
 DEVICE_SCALES = (1, 1, 2)  # DPR 1 is more common in the wild; weight it accordingly
 
-_EXTRACT_JS = (Path(__file__).parent / "extract.js").read_text()
+_EXTRACT_JS = (Path(__file__).parent / "extract.js").read_text(encoding="utf-8")
 
 
 @dataclass
@@ -130,7 +130,7 @@ def generate(out_dir: Path, per_recipe: int, seed: int, headless: bool = True) -
                         height = round(viewport[1] * scale)
                         lines = to_yolo(boxes, width, height, scale)
                         (out_dir / "labels" / split / f"{sample.stem}.txt").write_text(
-                            "\n".join(lines) + ("\n" if lines else "")
+                            "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8"
                         )
 
                         counts[split] += 1
@@ -150,7 +150,7 @@ def generate(out_dir: Path, per_recipe: int, seed: int, headless: bool = True) -
         "test": "images/test",
         "names": {i: name for i, name in enumerate(DETECTOR_CLASSES)},
     }
-    (out_dir / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False))
+    (out_dir / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False), encoding="utf-8")
 
     summary = {
         "images": counts,
@@ -159,7 +159,7 @@ def generate(out_dir: Path, per_recipe: int, seed: int, headless: bool = True) -
         "recipes": {split: [r.name for r in rs] for split, rs in splits.items()},
         "seed": seed,
     }
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
 
 

@@ -23,7 +23,7 @@ PALETTE = (
 
 
 def build_preview(data_dir: Path, split: str, limit: int) -> str:
-    names: dict[int, str] = yaml.safe_load((data_dir / "data.yaml").read_text())["names"]
+    names: dict[int, str] = yaml.safe_load((data_dir / "data.yaml").read_text(encoding="utf-8"))["names"]
     image_dir = data_dir / "images" / split
     label_dir = data_dir / "labels" / split
 
@@ -35,7 +35,7 @@ def build_preview(data_dir: Path, split: str, limit: int) -> str:
         boxes = []
         counts: dict[str, int] = {}
 
-        for line in label_path.read_text().splitlines():
+        for line in label_path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             index, cx, cy, w, h = line.split()
@@ -83,7 +83,7 @@ def main() -> None:
     args = parser.parse_args()
 
     out = args.out or (args.data / f"preview-{args.split}.html")
-    out.write_text(build_preview(args.data, args.split, args.limit))
+    out.write_text(build_preview(args.data, args.split, args.limit), encoding="utf-8")
     print(f"wrote {out}")
 
 

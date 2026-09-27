@@ -173,8 +173,10 @@ One command installs everything fresh for your machine and builds the extension:
 ./scripts/setup.sh
 ```
 
-On Windows, in PowerShell: `.\scripts\setup.ps1`. (Never copy `node_modules` between machines —
-some packages are native binaries built for one operating system.)
+On Windows, double-click `scripts\setup.cmd` — step by step, with the GPU model and what to test,
+in [docs/NEW_LAPTOP.md](docs/NEW_LAPTOP.md). (Never copy `node_modules` between machines — some
+packages are native binaries built for one operating system.) For a demo, `./scripts/start.sh` or
+`.\scripts\start.ps1` starts the demo pages, the planner and the browser in one go.
 
 **Browsers.** One build, `extension/.output/chrome-mv3`, for Chrome, Brave and Edge — the packed
 extension boots clean in Brave under `eval.smoke_extension --browser`; Edge is the same Chromium

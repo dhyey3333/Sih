@@ -16,8 +16,25 @@ dependencies = [
 [dependency-groups]
 # Training is a separate group on purpose: torch + ultralytics is ~2.5 GB, and
 # generating data does not need any of it. `uv sync` stays fast for the common case.
-train = ["ultralytics>=8.3", "onnx>=1.17", "onnxruntime>=1.19", "onnxslim>=0.1"]
+train = [
+    "ultralytics>=8.3", "onnx>=1.17", "onnxruntime>=1.19", "onnxslim>=0.1",
+    # Named here only so the sources below can point them at CUDA builds.
+    "torch>=2.4", "torchvision>=0.19",
+]
 dev = ["pytest>=8.3"]
+
+# On Windows and Linux, PyPI's torch is the CPU-only build: training would run and
+# never touch an NVIDIA GPU. These come from PyTorch's CUDA 12.6 index instead — the
+# most driver-compatible of the builds published for current torch (an RTX 3050 with
+# any recent driver). macOS keeps PyPI's build, which uses the Apple GPU.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu126", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

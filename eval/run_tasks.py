@@ -657,8 +657,11 @@ def main() -> None:
         "prompt_tokens_max": max((r.get("prompt_tokens_max") or 0 for r in results), default=None) or None,
     }
     OUT.mkdir(parents=True, exist_ok=True)
-    slug = "rules" if not args.vlm else f"{args.vlm}-{args.strategy}-{args.image}"
-    (OUT / f"tasks-{slug}.json").write_text(json.dumps({"summary": summary, "results": results}, indent=2))
+    # The model is in the name, so a 4B run and an 8B run on the same machine do not
+    # overwrite each other ("qwen3-vl:8b-instruct" -> "qwen3-vl-8b-instruct").
+    model_slug = env.get("VLM_MODEL", "").replace(":", "-").replace("/", "-")
+    slug = "rules" if not args.vlm else f"{args.vlm}-{model_slug}-{args.strategy}-{args.image}"
+    (OUT / f"tasks-{slug}.json").write_text(json.dumps({"summary": summary, "results": results}, indent=2), encoding="utf-8")
     print(f"\n{passed}/{len(results)} tasks passed · all safe: {summary['all_safe']} · "
           f"median {summary['median_wall_s']} s per task · wrote eval/results/tasks-{slug}.json")
 

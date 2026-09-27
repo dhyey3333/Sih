@@ -35,7 +35,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
-HARNESS_JS = (Path(__file__).parent / "harness.js").read_text()
+HARNESS_JS = (Path(__file__).parent / "harness.js").read_text(encoding="utf-8")
 BUNDLE = ROOT / "extension/.output/domcheck/domcheck.js"
 
 PAGES = ("kyc", "profile", "bank", "apply")
@@ -351,8 +351,8 @@ def main() -> None:
         "assets": asset_sizes(),
         "backends": backends,
     }
-    (args.out / "results.json").write_text(json.dumps(report, indent=2))
-    (args.out / "RESULTS.md").write_text(build_markdown(report))
+    (args.out / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (args.out / "RESULTS.md").write_text(build_markdown(report), encoding="utf-8")
 
     agg = report["aggregate"]
     hold = report["holdoutAggregate"]
