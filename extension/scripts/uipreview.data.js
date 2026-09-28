@@ -265,18 +265,25 @@
     ['aadhaar', '2234 5678 9018'],
     ['pan', 'ABCPI1234K'],
   ];
+  // What PrivAgent knows about you: read-only and masked, as the real panel draws it (D40).
+  const mask = (v) => {
+    const at = v.indexOf('@');
+    if (at > 0) return `${v[0]}${'•'.repeat(Math.min(at - 1, 6))}${v.slice(at)}`;
+    return `${v.slice(0, 1)}${'•'.repeat(Math.min(v.length - 3, 8))}${v.slice(-2)}`;
+  };
   const profile = $('profile');
-  profile.replaceChildren();
+  const list = Object.assign(document.createElement('ul'), { className: 'list list--memos' });
   for (const [key, value] of PROFILE) {
-    const label = document.createElement('label');
-    const span = document.createElement('span');
-    span.textContent = key;
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = value;
-    label.append(span, input);
-    profile.append(label);
+    const li = document.createElement('li');
+    li.append(
+      Object.assign(document.createElement('span'), { className: 'memo__label', textContent: key }),
+      Object.assign(document.createElement('span'), { className: 'memo__value', textContent: mask(value) }),
+      Object.assign(document.createElement('button'), { className: 'memo__forget', textContent: '×' }),
+    );
+    list.append(li);
   }
+  profile.replaceChildren(list);
+  $('vault-state').textContent = 'Kept on this device, encrypted. The server only ever sees keys like ⟦PROFILE.EMAIL⟧.';
 
   const LOG = [
     '✓ type ⟦PROFILE.PAN⟧ into field 5',
