@@ -275,7 +275,7 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 | `eval/` | one-command metric harness |
 | `eval/holdout/` | the blind set — pages in idioms the demo site does not use, never tuned against |
 | `demo-site/` | mock pages with **fake** PII, annotated with ground truth |
-| `docs/` | [submission](docs/SUBMISSION.md) · [demo script](docs/DEMO.md) · [plan](docs/PLAN.md) · [problem](docs/problem.md) · [progress](docs/PROGRESS.md) · [decisions](docs/DECISIONS.md) · [teammate review](docs/TEAMMATE_REVIEW.md) |
+| `docs/` | [submission](docs/SUBMISSION.md) · [demo script](docs/DEMO.md) · [video script](docs/VIDEO.md) · [plan](docs/PLAN.md) · [problem](docs/problem.md) · [progress](docs/PROGRESS.md) · [decisions](docs/DECISIONS.md) · [teammate review](docs/TEAMMATE_REVIEW.md) |
 | `reference/` | teammate's earlier prototype, read-only, gitignored |
 
 ## Commands
