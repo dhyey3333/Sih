@@ -17,14 +17,17 @@
  *     scrolling, and pressing Enter in a box the page declared as a search box — a
  *     search is not irreversible. Every click, and therefore everything that is,
  *     goes through the normal path and its confirmation gate.
- *   - **It only acts on a page author's declaration**, not on our own heuristics.
- *     A guess from a nearby word is exactly the case that deserves a model.
+ *   - **It only acts on a declaration**, not on our own heuristics: the page
+ *     author's (`autocomplete="email"`), or the user's own — the answer they gave
+ *     the last time a field asked exactly this question (D35). A guess from a
+ *     nearby word is exactly the case that deserves a model.
  *
  * And it acts only on the task it was given: a question is never answered by
  * filling in the form it happens to be asked on.
  */
 
 import type { PageElement, StepResponse } from './protocol';
+import { questionLabel } from './pii/memory';
 import { sanitizeText } from './pii/sanitize';
 import type { Vault } from './pii/vault';
 import { PROFILE_KEY_TYPE, type ProfileKey } from './pii/vault';
@@ -244,5 +247,67 @@ export function planLocally(input: LocalPlannerInput): LocalDecision | null {
     };
   }
 
+  // 4. An empty field asking a question the user has answered before.
+  for (const element of elements) {
+    const recalled = fillFromMemory(element, elements, vault, attempted);
+    if (recalled) return recalled;
+  }
+
   return null;
+}
+
+/** Roles an answer can be typed or picked into. A search box is step 2's business. */
+const ANSWERABLE = new Set(['textbox', 'combobox', 'spinbutton', 'radio']);
+
+/** A dropdown's value when nothing has been chosen yet. */
+const UNCHOSEN = /^(|0|-1|none|select.*|choose.*|--.*)$/i;
+
+function isUnanswered(element: PageElement, all: PageElement[]): boolean {
+  if (element.role === 'radio') {
+    return !all.some((e) => e.role === 'radio' && e.group === element.group && e.checked);
+  }
+  const value = (element.value ?? '').trim();
+  return element.options ? UNCHOSEN.test(value) : value.length === 0;
+}
+
+function fillFromMemory(
+  element: PageElement,
+  all: PageElement[],
+  vault: Vault,
+  attempted: ReadonlySet<number>,
+): LocalDecision | null {
+  if (!ANSWERABLE.has(element.role) || element.disabled || attempted.has(element.id)) return null;
+  if (element.sensitive === 'PASSWORD' || element.type === 'password') return null;
+  if (element.role === 'radio' && !element.group) return null;
+  if (!isUnanswered(element, all)) return null;
+
+  const label = questionLabel(element);
+  const recalled = vault.recall(label);
+  if (!recalled) return null;
+
+  // A choice is only made if what was remembered is one of the choices offered.
+  const choices =
+    element.role === 'radio'
+      ? all.filter((e) => e.role === 'radio' && e.group === element.group).map((e) => e.label ?? '')
+      : element.options;
+  if (choices) {
+    const wanted = vault.resolve(recalled.text).trim().toLowerCase();
+    if (!choices.some((c) => c.trim().toLowerCase() === wanted)) return null;
+  }
+
+  const shown = recalled.memo.label.slice(0, 60);
+  return {
+    response: {
+      action: choices ? 'select' : 'type',
+      element_id: element.id,
+      ...(choices ? { option: recalled.text } : { text: recalled.text }),
+      reason: `You answered “${shown}” before; filled from your vault.`,
+      confidence: 0.97,
+      planner: 'local',
+    },
+    because: `you answered “${shown}” before`,
+    // A plain answer is the user's own words: it stays off the wire, as it does when
+    // they type it into the question sheet. A token is safe to record as it is.
+    ...(recalled.memo.slug || recalled.memo.profileKey ? {} : { historyText: '(remembered answer)' }),
+  };
 }

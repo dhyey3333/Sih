@@ -14,6 +14,146 @@ Status board. Updated at the end of every milestone (CLAUDE.md).
 | M7 Polish | ✅ redesigned side panel, L0 local-only steps, Firefox lint pass, submission + demo docs |
 | M8 Hardening | ✅ new side panel, blind holdout set, shadow-DOM + iframe traversal, retrained detector (mAP50 0.900), per-target ORT (−30% on Firefox), live VLM path, packed-extension smoke test |
 | M9 The agent, measured | ✅ 19-task end-to-end benchmark with a wire-level leak check, a real open-weights model, prompt-injection gate, Hindi, screen text, real-form coverage, and the redaction bug the model found |
+| M10 The vault fills itself | ✅ ask once and remember, save from the page, encrypted "remember on this device"; OCR fixed in the packed extension; the Windows GPU laptop measured |
+| M11 Honest numbers, and a conversation | ✅ eval on real screenshots (precision was 0.880, now 1.000), detector yields to the DOM, chat thread with follow-ups, field answers by token, memory and backend measured, Edge checked |
+
+---
+
+## 2026-09-28 — M11: honest numbers, and a conversation
+
+### The eval saw a picture with no text in it (D38)
+
+`eval.run_all` gave the vision layer a stand-in capture: the page's `<img>` elements on
+a flat ground. No text, no form fields. The detector therefore never made its real
+mistakes, the precision column could not see them, and the leak test — which OCRs this
+image after redaction — could not find a leaked *text* value. The harness now takes a
+real Playwright screenshot and passes it in; `--composite` keeps the old capture. It
+also scores the pipeline's own `collectDetections` instead of assembling its own list.
+
+First honest run: demo site precision **0.880**, holdout 0.846. Every false box was the
+detector's `pii_text` class on text the DOM had read and found clean. The fix follows
+D1 — a detector box over DOM-read text or controls, where the DOM found nothing, not
+over an image, and with no long unlabelled number under it, is dropped
+(`lib/vision/dom-read.ts`).
+
+| Real screenshots | Precision | Recall | F1 |
+|---|---|---|---|
+| Demo site | 0.880 → **1.000** | 0.978 | 0.926 → **0.989** |
+| Holdout (not blind after this rule) | 0.846 → **0.956** | 0.957 → 0.935 | 0.898 → **0.945** |
+
+Leak test 0 on all ten pages, now over text as well. Per-step latency is also now
+honest: warm steps are 53–156 ms, not the 38–42 ms the text-free capture gave.
+
+### A conversation (D39)
+
+The panel is a thread: the request, a live line, the answer — "Done · 9 filled · 5 on
+this device · 10 steps · 11.0 s". The last four turns go to the planner as
+`conversation`, sanitized and guarded like the task. The rule planner answers a
+question about a field from the field: "what is my email on this form?" →
+`Email address: ⟦PROFILE.EMAIL⟧`, resolved in the panel. Checked in the packed
+extension: the follow-up request carried the first turn, tokens only; no profile
+value on the wire.
+
+### Scan an ID card into the vault
+
+**Scan an ID card — read on this device** in the vault opens a file picker; the image is
+read by OCR in the panel, only what the validators confirm is kept (a Verhoeff-checked
+Aadhaar number, a PAN, a date of birth beside its label), and it goes through the same
+masked "Save to vault?" card. The image is not kept. OCR lines now take the line above
+as context, because a card prints its label over its value: the demo card's birth date
+was unread until then. Checked in the packed extension: the demo ID card gave its
+Aadhaar number and date of birth in 0.7 s, and Save filled both keys. A name on a card
+is not taken — no rule can confirm it is a name, and no NER is shipped (D4).
+
+### Measured rather than assumed
+
+- **No memory leak.** Twelve Analyze passes with forced GC: side panel JS heap flat
+  at 4.9 MB, extension process ~330 MB and flat, GPU process levelling at ~550–580 MB.
+  The benchmark's 1.4 → 2.4 GB was the pages' renderer processes.
+- **WebGPU is kept, on evidence.** Chrome on Windows gave WebGPU the Intel iGPU, not
+  the RTX 3050 (and ignores `powerPreference`). Both models on a real screenshot: WASM
+  wins the first frame (656 vs 1,278 ms), WebGPU every frame after (245 vs 489 ms).
+- **The model-run crash is not GPU contention**: the extension runs on the iGPU, the
+  model on the NVIDIA card. Not reproduced; logged as unexplained.
+- **Edge**: the packed extension boots clean (`eval.smoke_extension --browser`).
+- **Firefox**: `web-ext lint` 0 errors; the warnings are two deliberate manifest keys
+  and `eval` inside the bundled OCR and model-runtime libraries.
+
+### Numbers
+
+551 extension tests, 163 server tests, typecheck clean, 19/19 tasks safe, detection unchanged.
+
+---
+
+## 2026-09-28 — M10: the vault fills itself, and the Windows laptop measured
+
+The brief: the user should not have to type their details into the vault, and the
+project had to be checked end to end on the Windows GPU laptop (docs/NEW_LAPTOP.md).
+
+### The vault fills itself (D35, D36)
+
+- **Ask once, remember.** An answer the agent asks for is learned: into the profile
+  when the field plainly asks for one of its keys ("Full name", "Mobile number"),
+  otherwise remembered against the field's label ("Father's name", "State of
+  domicile"), which is normalised so the same question asked another way is found.
+  The next form that asks is filled by L0 with no request at all, or in place of the
+  server's `ask_user`. A sensitive answer gets its own token, `⟦PROFILE.FATHER_NAME⟧`.
+- **Save from this page.** After Analyze, details the user already typed into the
+  form are offered, masked, for saving in one click.
+- **Remember on this device.** Off by default. AES-GCM-256, a non-extractable key in
+  IndexedDB, ciphertext in `storage.local`; plaintext never touches disk. Turning it
+  off, or "Forget everything", deletes key and ciphertext together.
+- Never remembered: passwords, OTPs, card numbers, CVVs. Never filed under the user's
+  own key: anything about a father, guardian, alternate number, office address — in
+  English or Hindi. The server's rule planner learned the same rule for every key; it
+  used to type the applicant's phone into "Father's mobile".
+
+Checked in the packed extension, in a real browser: Analyze on `kyc.html` with an
+empty vault offered 10 details, all masked, and Save filled 8 profile keys. The
+father's name learned there was then filled on `required.html` without a question;
+the one new question (income) was asked once, and a second run asked nothing. The
+sealed copy contained no readable value, survived a simulated browser restart, and
+was deleted when the toggle went off.
+
+### Two bugs found on the way
+
+- **OCR never ran in the packed extension.** tesseract.js starts its worker from a
+  `blob:` script by default, which an extension page refuses; the panel said
+  "OCR 1 region(s) 0 ms". The eval harness serves the same code over http, where the
+  blob works, so every OCR number was measured on a path the extension did not take.
+  `workerBlobURL: false` — OCR now runs in the panel (~330–450 ms a region).
+- **The detector named an email field `CARD`.** On `kyc.html` it called the email
+  input `payment_card` at 98%, and fusion let that outrank the DOM's exact reading:
+  the server saw ⟦CARD_1⟧ over the email. The DOM now names any box it also found;
+  the detector only widens it (D37).
+
+Still open, stated plainly: two low-confidence (44–52%) `pii_text` boxes on `kyc.html`
+cover harmless text — a sentence and the Gender dropdown. Over-redaction is safe, but
+it costs the model context, and the harness does not count boxes that match no
+ground-truth item, so its precision column cannot see them.
+
+### The Windows laptop (RTX 3050, 6 GB)
+
+| | Result |
+|---|---|
+| Extension tests | 536 passed (471 + 65 new) · typecheck clean |
+| Server tests | 155 passed (152 + 3 new) |
+| Builds | Chrome 48.0 MB · Firefox 33.8 MB |
+| 19-task benchmark, rules | **19 / 19, all safe**, 42 screenshots OCR'd, 0 values legible, median 3.05 s per task (2.9 s before OCR ran in the panel) |
+| Detection (`eval.run_all`) | unchanged: precision 1.000 / 1.000, recall 0.978 demo / 0.913 holdout, leak test 0 |
+| 19-task benchmark, `qwen3-vl:4b-instruct` rules-first | **13 / 19, all safe**, 78 screenshots OCR'd, 0 legible |
+| A model step on the GPU | **~1.5–2 s** (100% GPU) — against 7–82 s on the M1 |
+
+The 4B model is fast enough and not good enough: with `rules-first` it is only asked
+the judgement calls, and it gets more of them wrong than the rules do (it tried to put
+the email into "Father's name"; gate 4 stopped it). The previously pulled
+`qwen3-vl:8b` is the *thinking* variant: every reply came back empty after 20–30 s,
+so the server fell back to rules without saying why in the UI. Use `-instruct` tags.
+
+One run of the model benchmark lost its browser after five tasks (`TargetClosedError`
+on every task after); a rerun of the remaining fourteen ran clean. GPU memory was at
+4.7 of 6 GB with the model loaded, so Chrome's WebGPU backend and the model competing
+for VRAM is the likely cause, not proven.
 
 ---
 

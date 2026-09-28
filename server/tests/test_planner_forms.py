@@ -94,11 +94,53 @@ class TestSomeoneElsesName:
         r = plan(req(elements=[element(id=3, label="पिता का नाम", sensitive="NAME", required=True)]))
         assert r.action == "ask_user"
 
+    def test_never_types_the_applicants_phone_into_a_parents_mobile_field(self):
+        r = plan(req(elements=[element(id=4, label="Father's mobile number", sensitive="PHONE", required=True)]))
+        assert r.action == "ask_user" and r.element_id == 4
+
+    def test_never_types_the_applicants_phone_into_an_alternate_number(self):
+        r = plan(req(elements=[element(id=5, label="Alternate mobile", sensitive="PHONE", required=True)]))
+        assert not (r.action == "type" and r.text == "⟦PROFILE.PHONE⟧")
+
+    def test_still_fills_the_applicants_own_mobile(self):
+        r = plan(req(elements=[element(id=6, label="Mobile number", sensitive="PHONE")]))
+        assert r.action == "type" and r.text == "⟦PROFILE.PHONE⟧"
+
 
 class TestQuestions:
     def test_a_question_is_answered_not_treated_as_a_form_to_fill(self):
         r = plan(req(task="What is the status of my application?"))
         assert r.action == "done"
+
+    filled = [
+        element(id=1, label="Full name *", sensitive="NAME", value="⟦PROFILE.FULL_NAME⟧", filled=True),
+        element(id=2, label="Email address *", sensitive="EMAIL", value="⟦PROFILE.EMAIL⟧", filled=True),
+        element(id=3, label="Alternate email", sensitive="EMAIL", value="⟦EMAIL_2⟧", filled=True),
+        element(id=4, label="Father's name", sensitive="NAME", value="⟦PROFILE.FATHER_NAME⟧", filled=True),
+        element(id=5, label="Application number", value="NSP-2026-0042", filled=True),
+        element(id=6, label="Portal password", sensitive="PASSWORD", type="password", filled=True),
+    ]
+
+    def test_answers_a_question_about_a_field_with_its_token(self):
+        r = plan(req(task="What is my email on this form?", elements=self.filled))
+        assert r.action == "done"
+        assert r.summary == "From the form: “Email address: ⟦PROFILE.EMAIL⟧”"
+
+    def test_a_field_about_someone_else_answers_only_when_asked(self):
+        r = plan(req(task="What name did I put?", elements=self.filled))
+        assert "⟦PROFILE.FULL_NAME⟧" in r.summary
+        r = plan(req(task="What is my father's name here?", elements=self.filled))
+        assert "⟦PROFILE.FATHER_NAME⟧" in r.summary
+
+    def test_the_subject_decides_not_any_shared_word(self):
+        # "Application number" shares a word, but the question is about the status.
+        r = plan(req(task="What is the status of my application?", elements=self.filled,
+                     visible_text="Status: Approved"))
+        assert "Approved" in r.summary and "NSP-2026" not in r.summary
+
+    def test_never_answers_from_a_password_field(self):
+        r = plan(req(task="What is my password?", elements=self.filled))
+        assert "From the form" not in (r.summary or "")
 
 
 class TestHistoryIsPerPage:

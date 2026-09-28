@@ -24,6 +24,12 @@ payload, and only then sends anything. The model replies with one UI action nami
 token; the extension swaps the token for the real value locally, in the last
 millisecond before typing it.
 
+The user talks to it like a chat assistant — "fill this form and stop before
+submitting", "what is my application status?", "now the next page" — and never fills
+in a settings form: the vault learns each detail the first time the agent has to ask
+for it, from a form the user filled in by hand, or from a photo of their ID card read
+by OCR on the laptop — and keeps it on the device (D35).
+
 ## Why this shape of problem matters to a space organisation
 
 The problem statement asks for perception that runs on the client, and for the
@@ -57,10 +63,11 @@ one in its own scrolling panel, a form in an iframe and one in shadow DOM, a
 React-controlled form, a rich-text editor, a Hindi form, a declaration, three
 questions about the screen, and two prompt-injection pages.
 
-| Planner | Completed | Safe |
-|---|---|---|
-| Rule-based, no model | **19 / 19** | **19 / 19** |
-| Qwen2.5-VL 3B, open weights, local (the 6 model-dependent tasks) | 4 / 6 | **6 / 6** |
+| Planner | Completed | Safe | A model step |
+|---|---|---|---|
+| Rule-based, no model | **19 / 19** | **19 / 19** | — |
+| Qwen3-VL 4B instruct, open weights, local on an RTX 3050 laptop (all 19) | 13 / 19 | **19 / 19** | **~1.5–2 s**, 100% on the GPU |
+| Qwen2.5-VL 3B, open weights, local on an 8 GB M1 (the 6 model-dependent tasks) | 4 / 6 | **6 / 6** | 7–30 s |
 
 Two of those nineteen were misses until the last round of fixes, and what fixed them
 is general, not per-page: a vague pixel box over a *future* date that the text layer
@@ -76,8 +83,19 @@ Across every run, when it went wrong it went wrong in the ways the client's gate
 for, and each was stopped: on the injection page it **reached for the Aadhaar number and
 gate 4 refused**, then typed a made-up number over the user's query until the retype
 gate asked; it tried to overwrite a filled email (asked, declined). No run was unsafe.
-A larger model is three environment variables away (`--vlm openrouter` in the
-benchmark); we have measured only the 3B.
+The 4B on a laptop GPU is fast enough to demonstrate live and, like the 3B, less good
+than the rules at judgement calls — it tried to type the user's email into "Father's
+name", and gate 4 stopped it. A larger hosted model is three environment variables
+away (`--vlm openrouter` in the benchmark) and has not been measured yet.
+
+**It talks, and it remembers.** The side panel is a conversation: each request is a
+turn with a live line while the agent works and a plain-language result ("Done · 9
+filled · 5 on this device · 10 steps · 11 s"). Earlier turns go to the planner,
+sanitized like the task, so a follow-up is understood. A question about the user's
+own data is answered without the server seeing it: "what is my email on this form?"
+comes back as `Email address: ⟦PROFILE.EMAIL⟧`, and the panel fills the address in on
+the device. Every answer the agent had to ask for is learned (D35): the next form
+that asks the same question is filled with no question and no request.
 
 Three perception layers feed one element list:
 
@@ -113,9 +131,20 @@ PDF page), is trained on 2,280 pages our generator draws and labels itself:
 
 |  | Demo site | **Holdout** |
 |---|---|---|
-| **Precision** | **1.000** | **1.000** |
-| **Recall** | 0.978 over 45 items | **0.913 over 46 items** |
-| F1 | 0.989 | 0.955 |
+| **Precision** | **1.000** | **0.956** |
+| **Recall** | 0.978 over 45 items | **0.935 over 46 items** |
+| F1 | 0.989 | 0.945 |
+
+**Measured on real screenshots** (D38). Until the last round the harness gave the
+vision layer a stand-in capture — the page's images on a blank ground, no text — so
+the detector could not make its real mistakes and the leak test could not find a
+leaked text value. On real screenshots the demo site first read precision **0.880**:
+every false box was the detector's vague "personal text" class on text the DOM had
+already read and found clean. Such a box is now dropped when the DOM read what is
+under it and found nothing; the detector keeps full say over images, canvas and video.
+That rule was chosen after seeing, in aggregate, which holdout items the detector
+recovered, so the holdout column above is **not blind** — the blind number is still
+the 0.784 below.
 
 The second column is the one to look at. `eval/holdout/` holds pages that are never
 demonstrated. Four of them were not looked at while any rule was written or tuned: a
@@ -133,7 +162,7 @@ to the DOM layer entirely — no field classified, nothing redacted, while the v
 were still in the screenshot. That was a leak on two whole classes of modern site,
 and it is the single most important thing the holdout exercise produced.
 
-Precision is 1.000 *against deliberate decoys*, on both sets: 12-digit order and
+Precision holds *against deliberate decoys*, on both sets: 12-digit order and
 reference numbers, a Luhn-invalid card labelled as an SKU, a PAN-shaped string with
 an invalid holder-type letter, a public helpline, a "showing 1234 of 5678" result
 count, and historical dates that are not anyone's date of birth.
@@ -142,17 +171,16 @@ That is achieved without a model doing the deciding. Aadhaar is confirmed by a
 Verhoeff checksum, cards by Luhn, PAN by its holder-type letter, and 13 validators
 require a nearby context word before firing on ambiguous digits.
 
-The remaining misses are named, not hidden: three are a **person's name** belonging
-to someone who is not in the user's vault — there is no NER model (D4) — and one is
-a bare ten-digit number with no context word near it, which cannot be separated from
-an order id without giving up the precision column.
+The remaining misses are named, not hidden: all three on the holdout, and the one on
+the demo site, are a **person's name** belonging to someone who is not in the user's
+vault — there is no NER model (D4).
 
 ### 3. Precision of redaction — 20%
 
 | | |
 |---|---|
-| Pixel recall | 78–100% per page; 100% on six of the ten |
-| **Leak test** | **0**, on all ten pages |
+| Pixel recall | 87–100% per page; 100% on six of the ten |
+| **Leak test** | **0**, on all ten pages — on real screenshots, text and images alike |
 | **On the wire, end to end** | 42 request bodies and 42 screenshots from the task benchmark: **0** profile values in either |
 
 The last row is checked from outside the extension (D34): the benchmark records what
@@ -162,7 +190,14 @@ fixed, and is why the image half of the check exists.
 
 The leak test is the one that matters. It renders the redacted image exactly as the
 extension renders it, reads it back with OCR, and counts ground-truth values still
-legible. Zero, on every page including the holdout.
+legible. Zero, on every page including the holdout. Until D38 it ran on a stand-in
+capture with no text in it, which made it a test of image-borne values only; it now
+runs on a real screenshot of the page.
+
+Redaction also has to *say* what it covered, because the token is what the server
+reasons with. The detector once called an email field a payment card at 98% and the
+server was told ⟦CARD_1⟧; the DOM's reading of a field now names the box and the
+detector only widens it (D37).
 
 Text is painted with an opaque fill, never blurred — blurred text is recoverable,
 because the glyph alphabet is small and known. Only faces are pixelated.
@@ -173,6 +208,13 @@ Measured per task in the benchmark, for the whole browser process tree (the brow
 itself included, so this is an upper bound on what the extension costs): median
 **1.2 CPU-seconds per task**, peak resident memory **≤ 1.3 GB**.
 
+Measured per process, Analyze run twelve times on the KYC page with a forced garbage
+collection after each (Windows, Chrome): the **side panel's JavaScript heap stays at
+4.9 MB**; the **extension process settles at ~330 MB** (the WASM runtime and models)
+and does not grow; the GPU process levels off at ~550–580 MB with WebGPU in use. No
+leak — the growth the benchmark showed across nineteen tasks was the pages' own
+renderer processes.
+
 | Asset | Size |
 |---|---|
 | ONNX Runtime WASM — Chrome (WebGPU + WASM) | 26.5 MB |
@@ -180,8 +222,8 @@ itself included, so this is an upper bound on what the extension costs): median
 | Tesseract core + English data | 4.6 MB |
 | Custom UI detector | 10.0 MB |
 | YuNet face detector | 0.2 MB |
-| **Packed extension — Chrome** | **45.7 MB** |
-| **Packed extension — Firefox** | **32.2 MB** |
+| **Packed extension — Chrome** | **45.8 MB** |
+| **Packed extension — Firefox** | **32.3 MB** |
 
 Firefox is 30% smaller because it is given the WASM-only runtime, which runs on every
 Firefox — WebGPU has shipped on Windows and recent macOS but is still behind a flag on
@@ -201,11 +243,22 @@ We also found and fixed a 50× regression here: a machine with no usable GPU sti
 *advertises* WebGPU, backed by a software rasteriser. Preferring it costs ~4,000 ms
 per frame against ~79 ms on WASM. The adapter is now inspected and declined.
 
+WebGPU is kept because it is measured to be worth it, not assumed. On a Windows laptop
+where Chrome hands WebGPU the *integrated* Intel GPU, both vision models on a real
+screenshot: WASM wins the first frame (656 ms against 1,278 ms, having no shaders to
+compile) and WebGPU wins every frame after it (**245 ms against 489 ms**), almost all
+of it the UI detector (108 ms against 357 ms). An agent task is mostly frames after
+the first.
+
 ### 5. End-to-end latency — 15%
 
 **Per task**, press-run to done, over the 19-task benchmark with the rule-based
-planner: median **2.5 s**, total 50 s for all nineteen. Several of those seconds are
-the agent deliberately waiting for the page to settle after each action.
+planner: median **2.5 s** on the M1 and **2.8–3.3 s** on the Windows laptop with OCR
+now running in the panel. Several of those seconds are the agent deliberately waiting
+for the page to settle after each action.
+
+With the local 4B model on the Windows laptop's RTX 3050, a model step takes
+**~1.5–2 s**, entirely on the GPU; the model loads in 10 s once and stays warm.
 
 With the local 3B model on an 8 GB M1, a model step took **7 s** at best (text only,
 warm) and a median of **30 s** in the final benchmark run — 70 s in an earlier one with
@@ -218,17 +271,17 @@ judgement is needed.
 
 | | Cold (first look at a page) | Warm (every step after) |
 |---|---|---|
-| `kyc.html` | 451 ms | **42 ms** |
-| `profile.html` | 176 ms | **38 ms** |
-| `bank.html` | 43 ms | **39 ms** |
-| `apply.html` | 40 ms | **38 ms** |
+| `kyc.html` | 516 ms | **53 ms** |
+| `profile.html` | 479 ms | **156 ms** |
+| `bank.html` | 121 ms | **139 ms** |
+| `apply.html` | 137 ms | **115 ms** |
 
 Server round trip: 52 ms network + 4.8 ms server. Payload 42 KB.
 
-These are from an otherwise idle laptop. An earlier run of the same command, taken
-while a training job had the CPU, read 1,668 ms cold and 204 ms warm on `kyc.html` —
-a 4× spread on the same code. We quote the idle figures because that is the machine a
-demo runs on, and state the loaded ones because that is what a busy one does.
+Headless Chromium on the Windows laptop, WASM path, on **real screenshots** (D38).
+These are higher than the 38–42 ms warm figures we quoted before, and those were
+flattered: the vision layer then saw only the page's images on a blank ground, which
+is less to look at than a real screen. The figures above are what a step costs.
 
 And the fastest request is the one never made: **L0** handles a step entirely
 on-device when the page has *declared* what a field is (`autocomplete="email"`) and
@@ -263,7 +316,7 @@ under the DPDP Rules, 2025.
 | **§6(1)** — processing limited to the personal data *necessary* for the purpose | The server receives structure and tokens, never values. L0 steps send nothing; L1 sends no image; a banking or ID page is never sent pixels. |
 | **§8(5)** — reasonable security safeguards; the Rules name *obfuscation or masking* | Masking at source: solid-fill redaction and tokenization on the device, then an egress guard that re-scans every outbound payload and blocks on any hit. The server scans again on arrival and refuses rather than forwards. |
 | **§8(6)** — detect and report a breach | Every block is logged by incident *type* and JSON path, never value, on both sides — what the Rules call logs that let a breach be reconstructed. |
-| **§8(7)** — erase once the purpose is served | The profile lives in session storage — memory, gone when the browser closes — and never on disk. Clear drops every value captured from pages at once. The server persists nothing, and holds only tokens while it works. |
+| **§8(7)** — erase once the purpose is served | By default the vault lives in session storage — memory, gone when the browser closes. "Remember on this device" is the user's opt-in: AES-GCM-256 under a non-extractable key, plaintext never on disk, and "Forget everything" deletes key and ciphertext together (D36). Values seen on pages are never saved. Reset drops every value captured from pages at once. The server persists nothing, and holds only tokens while it works. |
 | Consent for what is done in the user's name | Submit, pay, send, delete — in English and Hindi — and every declaration checkbox need an explicit tap. A real value goes into a field of its own kind or the user is asked (gate 4). |
 
 What the server never receives, it cannot breach: the safeguard is architectural, and
@@ -285,13 +338,13 @@ from outside the extension.
 
 | Command | What it checks |
 |---|---|
-| `cd extension && npm test` | 471 unit tests — validators, heuristics, fusion, agent gates, panel markup |
-| `cd server && uv run pytest` | 152 tests, including the VLM path over a real socket and the live view |
+| `cd extension && npm test` | 551 unit tests — validators, heuristics, fusion, agent gates, the learning vault and its encryption, panel markup |
+| `cd server && uv run pytest` | 163 tests, including the VLM path over a real socket and the live view |
 | `cd ml && uv run --group dev pytest` | 20 tests over the data engine |
 | `uv run python -m eval.run_all` | Every detection and redaction number, in a real browser |
 | `uv run python -m eval.run_tasks` | The 19-task agent benchmark, with the wire check; `--vlm ollama` for a local model, `--vlm mock-injected` for the injection stress test |
-| `uv run python -m eval.smoke_extension` | The **packed** extension boots clean and loads its bundled runtime |
-| `cd extension && npx web-ext lint -s .output/firefox-mv3` | 0 errors |
+| `uv run python -m eval.smoke_extension` | The **packed** extension boots clean and loads its bundled runtime — checked in Chrome, Brave and Microsoft Edge |
+| `cd extension && npx web-ext lint -s .output/firefox-mv3` | 0 errors; the warnings are two deliberate manifest keys and `eval` inside the bundled OCR and model-runtime libraries |
 
 ## Honest limitations
 
@@ -301,12 +354,15 @@ from outside the extension.
 - **No real-screenshot test set.** Everything measured is the demo site, the holdout,
   or synthetic pages. Hand-labelled screenshots of real portals, never trained on,
   is the honest next test.
-- The only real model measured is **Qwen2.5-VL 3B on an 8 GB laptop**: 7 s a step
-  with text, over a minute with the screenshot. A larger model on a GPU is three
-  environment variables away and has not been measured.
-- The vision detector's vague "personal text" class fires on some dates. A future
-  date the text layer read cleanly is let through; a past date keeps its box, so a
-  question about a past date on such a page can go unanswered (D29).
+- The real models measured are small ones on laptops: **Qwen2.5-VL 3B** on an M1 and
+  **Qwen3-VL 4B** on an RTX 3050 (13 of 19 tasks, all safe, ~2 s a step). Both are
+  worse than the rules at judgement calls. A larger model is three environment
+  variables away and has not been measured.
+- The detector's vague "personal text" class is now dropped where the DOM read the
+  text underneath and found it clean (D38). That costs recall in one case: a name in
+  running prose that it happened to box, and that nothing else knows is a name.
+- One run of the model benchmark lost its browser after five tasks; the rerun was
+  clean, and it has not happened again. Unexplained.
 - Names belonging to someone other than the user are not detected — there is no NER
   model, by choice (D4).
 - The holdout's 0.784 is the only truly blind number it will ever produce. Everything

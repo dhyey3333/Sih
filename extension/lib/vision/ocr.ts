@@ -103,6 +103,12 @@ export class OcrEngine {
         // core and language data from a CDN, which MV3 forbids.
         this.worker = await createWorker('eng', 1, {
           workerPath: this.url('/tesseract/worker.min.js'),
+          // Start the worker from the bundled file itself. The default wraps it in a
+          // blob: script that calls importScripts(), which an extension page refuses —
+          // the engine then never loaded, and "OCR 1 region(s) 0 ms" was an OCR that
+          // did not run. The eval harness serves the same code over http, where the
+          // blob works, which is why only the packed extension showed it.
+          workerBlobURL: false,
           // A *specific file*, not a directory. Given a directory, tesseract.js probes
           // for the best variant it can run and asks for relaxed-SIMD first — a build
           // we deliberately do not ship, because carrying every variant is 6.4 MB each.
@@ -176,9 +182,14 @@ export class OcrEngine {
     // crop px → device px → CSS px, in that order.
     const toCss = (v: number) => v / upscale / dpr;
 
-    for (const line of linesOf(data)) {
+    const lines = linesOf(data);
+    for (const [i, line] of lines.entries()) {
       charsRead += line.text.length;
-      for (const match of scanText(line.text)) {
+      // The line above is context: a card or a letter prints its label over the value
+      // ("Date of Birth" / "14/03/2001"), and a rule that needs a context word would
+      // otherwise never see it — the demo ID card's birth date went unread for exactly
+      // this. The line above only; the value never borrows a label from below it.
+      for (const match of scanText(line.text, { context: lines[i - 1]?.text ?? '' })) {
         const box = boxForSpan(line, match.start, match.end);
         if (!box) continue;
         findings.push({

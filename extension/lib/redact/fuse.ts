@@ -125,10 +125,24 @@ export function fuseDetections(detections: Detection[], options: FuseOptions = {
     }
 
     // Grow the surviving box to cover both. The host already has the higher
-    // priority because of the sort, so its type and token are the ones to keep.
+    // priority because of the sort, so its type and token are the ones to keep —
+    // with one exception, below.
     host.bbox = union(host.bbox, candidate.bbox);
     host.confidence = Math.max(host.confidence, candidate.confidence);
     if (host.source !== candidate.source) host.detail = `${host.detail ?? host.source}+${candidate.source}`;
+
+    // The DOM read what the page itself says a field is; the detector guessed from
+    // pixels. When both describe one box, the DOM names it. The same mistake as the
+    // GENERIC case above, with a confident class: the detector called an email field
+    // `payment_card` at 98% on our own KYC page, and it went out as ⟦CARD_1⟧ instead
+    // of ⟦PROFILE.EMAIL⟧. The detector's box still widens the redaction.
+    if (host.source === 'vision' && candidate.source.startsWith('dom') && candidate.type !== 'FACE') {
+      host.type = candidate.type;
+      host.token = candidate.token;
+      host.id = candidate.id;
+      host.source = candidate.source;
+      if (candidate.value !== undefined) host.value = candidate.value;
+    }
   }
 
   return merged.map((d) => ({ ...d, bbox: padRect(d.bbox, pad, bounds) }));

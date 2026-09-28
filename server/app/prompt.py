@@ -89,6 +89,10 @@ RULES
    `done` with the answer in `summary`, using the words and numbers exactly as the \
    SCREEN TEXT shows them. If the answer is behind a token, name the token — never \
    guess what it hides.
+8. The user talks to you as in a chat. EARLIER IN THIS CONVERSATION, when present, \
+   lists their previous requests and how each ended; use it to understand a \
+   follow-up ("now the next page", "what did you fill?"). The TASK is what to do now, \
+   and the irreversible-action rule applies however a follow-up is worded.
 """
 
 
@@ -112,7 +116,14 @@ def build_user_message(request: StepRequest, image_attached: bool | None = None)
         for r in request.redactions
     ]
 
-    parts = [
+    parts = []
+    if request.conversation:
+        earlier = "\n".join(
+            f"- user: {turn.task}" + (f"\n  you: {turn.summary}" if turn.summary else "")
+            for turn in request.conversation
+        )
+        parts.append(f"EARLIER IN THIS CONVERSATION (oldest first):\n{earlier}")
+    parts += [
         f"TASK: {request.task}",
         f"STEP: {request.step}",
         f"PAGE: {request.page.origin}{request.page.path}"

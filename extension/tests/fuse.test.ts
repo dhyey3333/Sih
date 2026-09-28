@@ -171,3 +171,38 @@ describe('a vague vision box widens a redaction but never names it', () => {
     expect(out!.type).toBe('GENERIC');
   });
 });
+
+/**
+ * The same, with a confident class. On demo-site/kyc.html the detector called the
+ * email field `payment_card` at 98%, and the box went out as ⟦CARD_1⟧.
+ */
+describe('the DOM names a field; the detector only widens it', () => {
+  const field = { x: 100, y: 100, w: 300, h: 30 };
+  const around = { x: 96, y: 97, w: 310, h: 36 };
+
+  it('keeps the email field an email, whatever the detector calls it', () => {
+    const typed = { ...det('EMAIL', field, 'dom-field'), token: '⟦PROFILE.EMAIL⟧' };
+    const [out] = fuseDetections([det('CARD', around, 'vision'), typed], { pad: 0 });
+    expect(out!.type).toBe('EMAIL');
+    expect(out!.token).toBe('⟦PROFILE.EMAIL⟧');
+    expect(out!.source).toBe('dom-field');
+    expect(containment(out!.bbox, around)).toBe(1);
+  });
+
+  it('still lets the detector name what the DOM never saw — an image of a card', () => {
+    const [out] = fuseDetections([det('CARD', around, 'vision')], { pad: 0 });
+    expect(out!.type).toBe('CARD');
+  });
+
+  it('leaves OCR and the detector to the priority table', () => {
+    // OCR read the digits and checked them; the rule is about the DOM, not about it.
+    const [out] = fuseDetections([det('ID_DOCUMENT', around, 'vision'), det('AADHAAR', field, 'ocr')], { pad: 0 });
+    expect(out!.type).toBe('AADHAAR');
+    expect(containment(out!.bbox, around)).toBe(1);
+  });
+
+  it('never lets a face name text, or text be pixelated', () => {
+    const [out] = fuseDetections([det('FACE', around, 'vision'), det('NAME', field, 'dom-field')], { pad: 0 });
+    expect(out!.type).toBe('NAME');
+  });
+});

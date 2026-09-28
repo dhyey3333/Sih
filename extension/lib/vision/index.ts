@@ -22,7 +22,7 @@
 import type { Detection, DomSnapshot, ImageCandidate, PiiType, Rect } from '../protocol';
 import type { Vault } from '../pii/vault';
 import { ChangeDetector } from './change';
-import { OcrEngine } from './ocr';
+import { OcrEngine, type OcrFinding } from './ocr';
 import { UiDetector, undeclaredControls, type VisionElement } from './ui-detector';
 import {
   createSession,
@@ -176,6 +176,18 @@ export class VisionLayer {
     await this.loading;
     if (!this.sessionInfo) throw new Error('Vision model failed to load');
     return this.sessionInfo;
+  }
+
+  /**
+   * Read a document the user chose — a photo or scan of their Aadhaar or PAN card —
+   * and return only what the validators recognise: a Verhoeff-checked Aadhaar
+   * number, a PAN, a date of birth beside its label. Everything else OCR reads is
+   * discarded inside `readRegion`, as it is for a screen. Nothing leaves the device;
+   * the caller offers what was found for the vault and keeps nothing it did not save.
+   */
+  async readDocument(image: CanvasImageSource, width: number, height: number): Promise<OcrFinding[]> {
+    const { findings } = await this.ocr.readRegion(image, { x: 0, y: 0, w: width, h: height }, 1);
+    return findings;
   }
 
   async dispose(): Promise<void> {

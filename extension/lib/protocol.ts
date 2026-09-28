@@ -294,9 +294,20 @@ export interface HistoryEntry {
   error?: string;
 }
 
+/** An earlier task in this panel session and how it ended. Sanitized like the task. */
+export interface ConversationTurn {
+  task: string;
+  summary?: string;
+}
+
 export interface StepRequest {
   session_id: string;
   task: string;
+  /**
+   * Earlier turns, oldest first, so a follow-up ("now submit it", "what did you
+   * fill?") can be understood. Every string is sanitized exactly as the task is.
+   */
+  conversation?: ConversationTurn[];
   step: number;
   disclosure_level: DisclosureLevel;
   /** Origin + path only. Query strings and fragments are stripped (CLAUDE.md). */

@@ -111,9 +111,19 @@ class HistoryEntry(BaseModel):
     error: str | None = None
 
 
+class ConversationTurn(BaseModel):
+    """An earlier task in this panel session and how it ended — sanitized like the task."""
+
+    task: str = Field(max_length=500)
+    summary: str | None = Field(default=None, max_length=600)
+
+
 class StepRequest(BaseModel):
     session_id: str
     task: str
+    #: Earlier turns, oldest first, so "now submit it" or "what did you fill?" can be
+    #: understood. Tokens only: the client sanitizes every turn like the task itself.
+    conversation: list[ConversationTurn] = Field(default_factory=list, max_length=6)
     step: int = 0
     #: 0 local-only, 1 structure-only, 2 sanitized image + structure.
     disclosure_level: Literal[0, 1, 2] = 2

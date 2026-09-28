@@ -906,6 +906,160 @@ svg { display: block; }
 .result[data-kind="stopped"] .result__icon { background: var(--danger); color: #fff; }
 .result[data-kind="stopped"] .result__body b { color: var(--danger); }
 
+/* ── Conversation: one turn per task, newest first ─────────────────── */
+
+.thread {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  animation: enter 0.35s var(--ease);
+}
+
+/* Earlier turns step back, so the one in progress is the one that reads first. */
+.turn + .turn { opacity: 0.66; }
+.turn + .turn:hover { opacity: 1; }
+
+.turn__me {
+  align-self: flex-end;
+  max-width: 86%;
+  margin: 0;
+  padding: 7px 11px;
+  border-radius: 14px 14px 4px 14px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--accent-ink);
+  background: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.turn__live {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.turn__live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 99px;
+  background: currentColor;
+}
+
+.turn__live[data-state="busy"] { color: var(--accent); }
+.turn__live[data-state="busy"]::before { animation: pulse 1.1s var(--ease) infinite; }
+.turn__live[data-state="ok"] { color: var(--safe); }
+.turn__live[data-state="err"] { color: var(--danger); }
+
+/* An earlier answer, kept as text once the next turn takes the live card. */
+.turn__reply {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 4px 14px 14px 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  overflow-wrap: break-word;
+}
+
+/* ── Learn: details found on the page, offered for the vault ───────── */
+
+.learn {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-sm);
+  animation: enter 0.4s var(--ease);
+}
+
+.learn__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.learn__head b {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.learn__head small {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.learn__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.learn__list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+}
+
+.learn__list li:last-child label { border-bottom: none; }
+.learn__list input { accent-color: var(--accent); margin: 0; }
+
+.learn__what {
+  flex: none;
+  width: 110px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learn__value,
+.memo__value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learn__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.learn__actions .btn { flex: 1; }
+
 /* ── Guard ─────────────────────────────────────────────────────────── */
 
 .guard {
@@ -1408,6 +1562,55 @@ svg { display: block; }
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-wash);
 }
+
+/* Answers the vault learned, beyond the fixed profile keys. */
+.memos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+
+.memos__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.list--memos li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.list--memos li:last-child { border-bottom: none; }
+
+.memo__label {
+  flex: none;
+  width: 110px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memo__forget {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 99px;
+  color: var(--ink-3);
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.memo__forget svg { width: 12px; height: 12px; }
+.memo__forget:hover { color: var(--danger); background: var(--danger-wash); }
 
 /* ── Colophon ──────────────────────────────────────────────────────── */
 

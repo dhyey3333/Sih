@@ -22,12 +22,17 @@ cd server && PLANNER_VIEW=1 uv run uvicorn app.main:app --port 8000
 cd extension && npm run dev
 ```
 
+On the Windows laptop, `scripts\start.ps1` does all three in one command, and
+`scripts\start.ps1 -Model qwen3-vl:4b-instruct` does it with the local model.
+
 Then, once:
 
-- Open the side panel, expand **My vault**, press **Load demo profile**.
-- Open `http://localhost:5173/kyc.html` and press **Analyze** once. This pays the
-  one-time model load (~2 s) so the live demo is warm.
-- Press **Reset** to clear the session. The vault keeps the profile.
+- Open the side panel. **Leave the vault empty** — act 1 fills it on stage. (If you
+  would rather not, expand **My vault** and press **Load demo profile**.)
+- Open `http://localhost:5173/apply.html` and press **Analyze** once. This pays the
+  one-time model load (~2 s) so the live demo is warm; the form is empty, so there
+  is nothing to offer the vault and it stays empty.
+- Press **Reset** to clear the session.
 - Have a second tab on a real site with a login form.
 
 **Second screen.** Open `http://localhost:8000/view` on the projector or a second
@@ -36,7 +41,7 @@ screenshot, the tokens, the decision. Keep the side panel on your screen, this o
 theirs, and the boundary is visible from both sides for the whole demo. In act 1
 it stays empty — Analyze sends nothing — which is itself the point.
 
-**Checklist:** side panel open · profile loaded · server says *Connected* under
+**Checklist:** side panel open · vault empty (or demo profile loaded) · server says *Connected* under
 Settings · `/view` open on the second screen · screen sharing set to the browser
 window, not the whole desktop.
 
@@ -54,10 +59,13 @@ every page — the worst case, on purpose. Claiming it is a model is the one thi
 will sink you. (A real 3B model did fall for the same page in our benchmark; the stub
 just does it every time.)
 
-For a real open-weights model on the laptop: `ollama pull qwen2.5vl:3b`, then
-`VLM_BASE_URL=http://localhost:11434/v1 VLM_MODEL=qwen2.5vl:3b VLM_STRATEGY=rules-first
-VLM_IMAGE=auto`. It works, and it is slow on 8 GB — 7 s a step with text, over a
-minute with the screenshot — so rehearse with it, and decide beforehand.
+For a real open-weights model on the laptop: on the Windows RTX 3050 laptop,
+`ollama pull qwen3-vl:4b-instruct` and `scripts\start.ps1 -Model qwen3-vl:4b-instruct`
+— ~2 s a model step, 13 of the 19 benchmark tasks, all safe. Rehearse the acts below
+with it: it completes the form fill, the questions and both injection pages, and it
+is weaker on dropdown-heavy, Hindi and rich-text forms. Use an **`-instruct`** tag: a
+thinking model spends its whole budget reasoning and the planner falls back to rules.
+On an 8 GB Mac, `qwen2.5vl:3b` works but takes 7–30 s a step. Decide beforehand.
 
 ---
 
@@ -73,20 +81,36 @@ Open `kyc.html`. Press **Analyze**.
 That is the whole idea in one gesture: the left half is your screen, the right half
 is what the server would receive. Say it plainly:
 
-> Nothing has been sent yet. This all happened on this laptop — about 40 milliseconds
-> a step once the models are warm, under half a second the first time.
+> Nothing has been sent yet. This all happened on this laptop — a quarter of a second
+> a step once the models are warm, about a second the first time.
+
+**The card under the preview: "Save your details from this page?"** With an empty
+vault, Analyze found a name, an email, a phone, an Aadhaar number and more in the
+form, and offers them — masked — for the vault.
+
+> I never typed my details into this extension. It just read them off a form I filled
+> in myself, and it asks before keeping them. They go into a vault on this laptop,
+> never to a server.
+
+Press **Save to vault**, then **Analyze** again. The tokens change from `⟦EMAIL_1⟧` to
+`⟦PROFILE.EMAIL⟧`: they are *yours* now, usable on any site. Open **My vault** and turn
+on **Remember on this device** — encrypted, so it survives a browser restart.
+
+(Optional, 20 seconds: expand **My vault** → **Scan an ID card** → pick
+`demo-site/assets/id-card.svg`. The Aadhaar number and date of birth are read off the
+*image*, on this laptop, and offered the same way. The image is not kept.)
 
 Point at three things, in this order:
 
-1. **The photo is pixelated, the ID card is blacked out.** Neither is in the DOM —
-   there is no text to read there. That took a 227 KB face detector and OCR.
-2. **`⟦PROFILE.AADHAAR⟧` appears twice** in the detections list — once from the form
-   field, once read by OCR *out of the card image*. Same value, so same token. The
-   server can tell they are the same person's number without ever seeing it.
-   **Hover that row** and its box lights up on the preview, so nobody has to take
-   your word for which pixels it covers.
-3. **The egress guard bar.** It re-scanned 142 strings after everything else ran, and
-   found nothing. That is the backstop: every other layer can have a bug.
+1. **The photo is pixelated.** It is not in the DOM — there is no text to read
+   there. That took a 227 KB face detector.
+2. **Scroll the page down to the ID card and press Analyze.** `⟦PROFILE.AADHAAR⟧`
+   appears with source `ocr` — read *out of the card image* on this laptop, and given
+   the same token as the form field. The server can tell they are the same person's
+   number without ever seeing it. **Hover that row** and its box lights up on the
+   preview, so nobody has to take your word for which pixels it covers.
+3. **The egress guard bar.** It re-scanned every string after everything else ran,
+   and found nothing. That is the backstop: every other layer can have a bug.
 
 Then look at the counter line under the metrics: **0 requests · 0 B sent**. It is a
 live counter, not a claim — it will move the moment anything is sent, and it has not.
@@ -131,7 +155,17 @@ Run again with *"fill this form and submit it"*. **The confirmation sheet appear
 
 Press **Stop**.
 
-Then ask it something about *you*. Open `profile.html` and type *"What email address
+Point at the **conversation** under the prompt: each request is a turn, with a line
+that says what happened — *Done · 9 filled · 5 on this device · 10 steps*. It is a
+chat, and it remembers the turns before: they go to the planner, tokens only, so a
+follow-up is understood.
+
+Ask a follow-up, right there: *"what is my email on this form?"*
+
+> `Email address: ananya.iyer@example.com` — and read the line under it: the server
+> saw only ⟦PROFILE.EMAIL⟧. It answered a question about my data without my data.
+
+Then ask it something about *you* on another page. Open `profile.html` and type *"What email address
 is on my profile?"*.
 
 > The answer card shows my email. The server never saw it — read the line under it.
@@ -183,19 +217,24 @@ Show `eval/results/RESULTS.md`, and go **straight to the holdout table**:
 
 | | Demo site | Holdout |
 |---|---|---|
-| Precision | 1.000 | **1.000** |
-| Recall | 0.978 | **0.913** |
+| Precision | 1.000 | **0.956** |
+| Recall | 0.978 | **0.935** |
 | **Leak test** | **0** | **0** |
 
 > The first column is the pages we built. Anyone can score well on those. The second
-> is four pages we wrote to be *unlike* ours — a React form with no labels, a 2005
+> is pages we wrote to be *unlike* ours — a React form with no labels, a 2005
 > government portal in nested tables, a Hindi-English statement with no form fields
 > at all — and never looked at while writing a rule. The first time we ran it, recall
-> was 0.784. Fixing what it found took it to 0.913. Precision never moved off 1.000.
+> was 0.784; that is the only truly blind number it will ever give, and we say so.
 
-> The leak test is the one I'd push on if I were you. It takes the redacted image,
-> runs OCR over it, and counts how many real values are still readable. Zero, on all
-> eight pages.
+> These are measured on real screenshots. They used to be measured on a stand-in with
+> no text in it, and when we fixed that, our own precision dropped from 1.000 to
+> 0.880 — the vision model was boxing ordinary sentences. We fixed the cause, not the
+> number, and wrote down what it cost.
+
+> The leak test is the one I'd push on if I were you. It takes a real screenshot,
+> redacts it exactly as the extension does, runs OCR over it, and counts how many real
+> values are still readable. Zero, on all ten pages.
 
 If time allows, show the **Pipeline** panel: `WEBGPU · 227 KB · 50 ms`.
 
@@ -220,9 +259,10 @@ Untick **On-device vision** in the Pipeline panel and Analyze again on `kyc.html
 ## Questions you should expect
 
 **"Is 45 MB not enormous for an extension?"**
-Yes, and it is almost entirely the ONNX runtime — 26.5 MB of the 45.7 on Chrome. It
+Yes, and it is almost entirely the ONNX runtime — 26.5 MB of the 45.8 on Chrome. It
 ships once and loads lazily; a screen that needs no model pays 2–27 ms and zero
-megabytes. We already took Firefox from 45.7 MB to **32.2 MB** by giving it the
+megabytes, and at run time the extension process settles at about 330 MB and stays
+there. We already took Firefox from 45.8 MB to **32.3 MB** by giving it the
 WASM-only runtime, which runs on every Firefox, including Linux, where WebGPU is still
 behind a flag. FP16 export is the next lever.
 
@@ -245,12 +285,26 @@ which is why the WASM path is not a fallback we tolerate, it is a first-class pa
 measure, and why Firefox ships a smaller runtime than Chrome rather than a bigger one.
 
 **"Have you run it against a real model?"**
-Yes — Qwen2.5-VL 3B, open weights, locally through Ollama, over the same 19-task
-benchmark. It answers questions from the screen text in about 7 seconds a step on an
-8 GB laptop. It also typed a made-up email into a login form, and on the injection
-page it went for the Aadhaar number — both stopped by the client's gates, which is
-the point: the gates do not depend on the model being good. A larger model is three
-environment variables away.
+Yes — two open-weights models, locally through Ollama, over the same 19-task
+benchmark. Qwen3-VL 4B on this laptop's RTX 3050: 13 of 19 completed, all 19 safe,
+about 2 seconds a step. Qwen2.5-VL 3B on an 8 GB Mac: slower, 4 of the 6 model tasks.
+Both went wrong in the ways the gates exist for — the 4B tried to type the email into
+"Father's name", the 3B went for the Aadhaar number on the injection page — and both
+were stopped on the client, which is the point: the gates do not depend on the model
+being good. A larger hosted model is three environment variables away.
+
+**"Do I have to type my details into it?"**
+No. The first time a form needs something the vault does not have, the agent asks
+once and remembers — the next form that asks the same question is filled without
+asking. Analyze offers to save details you already typed into a page. Nothing learned
+leaves the laptop: the server sees `⟦PROFILE.FATHER_NAME⟧`, never the name.
+
+**"Where is the vault kept? What if the laptop is stolen?"**
+In memory by default, gone when the browser closes. "Remember on this device" saves it
+encrypted — AES-GCM with a key the browser marks non-extractable, so no script can copy
+it off the machine — and the plaintext never touches the disk. Someone who can run code
+as this extension, on this user's browser profile, can still decrypt it, exactly as they
+could the browser's own saved addresses; we say that in D36 rather than overclaim.
 
 **"How do you know nothing leaked?"**
 The task benchmark records every request the panel sends, from outside the

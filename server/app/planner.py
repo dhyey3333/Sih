@@ -48,13 +48,16 @@ _STOP_PHRASES = (
 #: Tasks that ask to be *told* something rather than to have something done.
 #: Without this the form-filling path runs anyway and answers "Filled every field I
 #: could" to the question "what is on this page", which is worse than declining.
-#: A name field that is about someone else. Classified NAME — rightly, since it holds
-#: a person's name and must be redacted — but filling it with the *applicant's* name
-#: is wrong on almost every Indian government form, which asks for a father's,
-#: mother's, guardian's or nominee's name as a matter of course.
+#: A field that is about someone else. A father's name is classified NAME — rightly,
+#: since it holds a person's name and must be redacted — but filling it with the
+#: *applicant's* name is wrong on almost every Indian government form, which asks for
+#: a father's, mother's, guardian's or nominee's name, mobile and address as a matter
+#: of course. Mirrors SOMEONE_ELSE in extension/lib/pii/memory.ts.
 _SOMEONE_ELSE = re.compile(
     r"\b(father|mother|guardian|spouse|husband|wife|nominee|parent|son|daughter|brother|sister|"
-    r"relative|emergency contact|referee|witness|co-?applicant)\b|पिता|माता|पति|पत्नी|अभिभावक|नामांकित",
+    r"relative|emergency|referee|reference|witness|co-?applicant|alternate|alternative|secondary|"
+    r"office|employer|company|institute|institution|college|school|university)\b"
+    r"|पिता|माता|पति|पत्नी|अभिभावक|नामांकित",
     re.IGNORECASE,
 )
 
@@ -207,6 +210,48 @@ def _words(text: str) -> set[str]:
         if word not in _STOPWORDS and len(word) > 1:
             out.add(word)
     return out
+
+
+#: Fields a question about "what is my X" can be answered from.
+_ANSWERABLE_ROLES = {"textbox", "searchbox", "combobox", "spinbutton"}
+
+
+def answer_from_fields(question: str, elements: list[WireElement]) -> str | None:
+    """``Label: value`` for the filled field a question asks about, or None.
+
+    Keyed on the question's *subject* — its first meaningful word, the same rule
+    `answer_from_text` breaks ties with. "What is my email?" asks about "email", and
+    an "Email address" field answers it. "What is the status of my application?"
+    asks about "status", so an "Application number" field does not. A field about
+    someone else (father, alternate, office…) answers only a question that says so.
+
+    Only a field that holds something; a password holds nothing we can read. The
+    value is whatever the wire carries: a token for anything sensitive, which the
+    extension resolves on the device.
+    """
+    ordered = [w for t in _WORD.findall(question.lower()) for w in _words(t)]
+    if not ordered:
+        return None
+    subject, keywords = ordered[0], set(ordered)
+    about_someone_else = bool(_SOMEONE_ELSE.search(question))
+
+    candidates = []
+    for position, e in enumerate(elements):
+        if e.role not in _ANSWERABLE_ROLES or not e.label or not (e.value or "").strip():
+            continue
+        if e.sensitive == "PASSWORD" or e.type == "password":
+            continue
+        if _SOMEONE_ELSE.search(e.label) and not about_someone_else:
+            continue
+        words = _words(e.label)
+        if subject not in words:
+            continue
+        # Most of the question's words, then the shortest label, then the first on the page.
+        candidates.append((len(keywords & words), -len(words), -position, e))
+    if not candidates:
+        return None
+    element = max(candidates, key=lambda c: c[:3])[3]
+    return f"{(element.label or '').rstrip(' *:')}: {element.value}"
 
 
 def answer_from_text(question: str, screen_text: str) -> str | None:
@@ -375,6 +420,19 @@ def plan(request: StepRequest) -> StepResponse:
     #    wrong action, not merely an unhelpful one.
     task = request.task.lower()
     is_question = task.strip().endswith("?") or bool(_QUESTION.match(task))
+    field = answer_from_fields(request.task, request.elements) if is_question else None
+    if field:
+        # A question about what a field holds is answered by the field — with its
+        # token when the value is the user's: the extension fills the real value in
+        # on the device, and this server answered without ever seeing it.
+        return StepResponse(
+            action="done",
+            summary=f"From the form: “{field}”",
+            reason="The form field whose label best matches the question's words. "
+            "Matched by keyword, not read by a model.",
+            confidence=0.7,
+            planner="rule-based",
+        )
     if is_question and request.visible_text:
         answer = answer_from_text(request.task, request.visible_text)
         if answer:
@@ -419,8 +477,11 @@ def plan(request: StepRequest) -> StepResponse:
             continue
 
         key = _TYPE_TO_PROFILE_KEY.get(element.sensitive)
-        if key == "FULL_NAME" and _SOMEONE_ELSE.search(element.label or element.placeholder or ""):
-            continue  # someone else's name: ask (step 2), never guess with the user's own
+        if key and _SOMEONE_ELSE.search(element.label or element.placeholder or ""):
+            # Someone else's name — or their mobile, their Aadhaar, an office address:
+            # ask (step 2), never guess with the user's own. It used to be names only,
+            # and "Father's mobile number" got the applicant's phone.
+            continue
         if key and key in available:
             return StepResponse(
                 action="type",

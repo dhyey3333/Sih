@@ -13,10 +13,20 @@
 
 import { Agent, describeAction, type StepReport } from '../../lib/agent';
 import { DEMO_PROFILE } from '../../lib/demo-profile';
-import type { Detection, StageTimings, StepRequest } from '../../lib/protocol';
+import type { Detection, PiiType, StageTimings, StepRequest } from '../../lib/protocol';
 import type { PipelineOutput } from '../../lib/pipeline';
 import { describeIncidents } from '../../lib/pii/egress';
-import { PROFILE_KEYS, TOKEN_PATTERN, Vault, type ProfileKey } from '../../lib/pii/vault';
+import { loadImage } from '../../lib/redact/render';
+import {
+  documentSuggestions,
+  maskValue,
+  NEVER_REMEMBERED,
+  normalizeLabel,
+  profileKeyForField,
+  questionLabel,
+} from '../../lib/pii/memory';
+import { PROFILE_KEYS, TOKEN_PATTERN, Vault, type ProfileKey, type VaultBackup } from '../../lib/pii/vault';
+import { browserStores, forgetVault, openVault, sealVault } from '../../lib/pii/vault-store';
 import { VisionLayer } from '../../lib/vision';
 
 const vault = new Vault();
@@ -89,6 +99,7 @@ const ui = {
   statSent: $('stat-sent'),
   statLocal: $('stat-local'),
 
+  thread: $('thread'),
   result: $('result'),
   resultTitle: $('result-title'),
   resultText: $('result-text'),
@@ -110,6 +121,19 @@ const ui = {
 
   profile: $('profile'),
   profileDemo: $<HTMLButtonElement>('profile-demo'),
+  vaultRemember: $<HTMLInputElement>('vault-remember'),
+  vaultForget: $<HTMLButtonElement>('vault-forget'),
+  memosSection: $('memos-section'),
+  memos: $('memos'),
+
+  learn: $('learn'),
+  learnTitle: $('learn-title'),
+  learnNote: $('learn-note'),
+  learnList: $('learn-list'),
+  idScan: $<HTMLInputElement>('id-scan'),
+  idScanButton: $('id-scan-button'),
+  learnSave: $<HTMLButtonElement>('learn-save'),
+  learnDismiss: $<HTMLButtonElement>('learn-dismiss'),
 
   log: $('log'),
   logCount: $('log-count'),
@@ -187,6 +211,93 @@ function showResult(title: string, text: string, kind: 'done' | 'stopped' = 'don
 
 function hideResult(): void {
   ui.result.hidden = true;
+}
+
+/* ------------------------------------------------------------------ *
+ * Conversation
+ * ------------------------------------------------------------------ */
+
+interface Turn {
+  task: string;
+  /** How it ended, in the planner's own words — tokens, never resolved values. */
+  summary?: string;
+  li: HTMLLIElement;
+  live: HTMLElement;
+}
+
+/** This panel session's turns, oldest first. Dropped by Reset and when the panel closes. */
+const turns: Turn[] = [];
+const TURNS_SHOWN = 6;
+
+/**
+ * A new turn: the user's words, a live line, and the answer card moved in beneath
+ * them. The card keeps its id — `#result` is always the newest answer — and the
+ * previous answer stays behind as plain text.
+ */
+function startTurn(task: string): Turn {
+  const previous = turns.at(-1);
+  if (previous && !ui.result.hidden) {
+    const reply = Object.assign(document.createElement('p'), {
+      className: 'turn__reply',
+      textContent: ui.resultText.textContent ?? '',
+    });
+    previous.li.append(reply);
+  }
+  hideResult();
+
+  const li = document.createElement('li');
+  li.className = 'turn';
+  const me = Object.assign(document.createElement('p'), { className: 'turn__me', textContent: task });
+  const live = Object.assign(document.createElement('p'), { className: 'turn__live' });
+  li.append(me, live, ui.result);
+  ui.thread.prepend(li);
+  ui.thread.hidden = false;
+  while (ui.thread.children.length > TURNS_SHOWN) ui.thread.lastElementChild?.remove();
+
+  const turn: Turn = { task, li, live };
+  setLive(turn, 'busy', 'Reading the page…');
+  turns.push(turn);
+  return turn;
+}
+
+function setLive(turn: Turn, state: Status, text: string): void {
+  turn.live.dataset.state = state;
+  turn.live.textContent = text;
+}
+
+interface Tally {
+  steps: number;
+  /** Values typed or chosen on the page. */
+  filled: number;
+  /** Steps that never left the device (L0). */
+  local: number;
+}
+
+function finishTurn(turn: Turn, outcome: { status: Status; text: string; summary?: string; tally: Tally; ms: number }): void {
+  const { tally } = outcome;
+  const facts = [
+    ...(tally.filled ? [`${tally.filled} filled`] : []),
+    ...(tally.local ? [`${tally.local} on this device`] : []),
+    `${tally.steps} step${tally.steps === 1 ? '' : 's'}`,
+    `${(outcome.ms / 1000).toFixed(1)} s`,
+  ];
+  const headline = outcome.status === 'ok' ? 'Done' : capitalise(outcome.text || 'Stopped');
+  setLive(turn, outcome.status === 'busy' ? 'idle' : outcome.status, `${headline} · ${facts.join(' · ')}`);
+  turn.summary = outcome.summary ?? (outcome.status === 'ok' ? 'Done.' : `Stopped: ${outcome.text || 'no reason given'}.`);
+}
+
+/** Earlier turns for the planner, oldest first. The pipeline sanitizes every string. */
+function conversationSoFar(): Array<{ task: string; summary?: string }> {
+  return turns.slice(-4).map(({ task, summary }) => ({ task, ...(summary ? { summary } : {}) }));
+}
+
+function clearConversation(): void {
+  turns.length = 0;
+  // The answer card goes home before the turns holding it are removed.
+  ui.learn.before(ui.result);
+  hideResult();
+  ui.thread.replaceChildren();
+  ui.thread.hidden = true;
 }
 
 /**
@@ -410,9 +521,29 @@ function lightBox(id: string | null): void {
  * ------------------------------------------------------------------ */
 
 const PROFILE_STORAGE_KEY = 'privagent.profile';
+/** Whether the user chose to keep the vault on this device. A preference, not PII. */
+const REMEMBER_STORAGE_KEY = 'privagent.vault.remember';
 const SERVER_STORAGE_KEY = 'privagent.serverUrl';
 /** A credential: kept in session storage (memory, wiped on close), like the profile. */
 const TOKEN_STORAGE_KEY = 'privagent.serverToken';
+
+const vaultStores = browserStores();
+
+/** The × on a remembered answer. Built with DOM calls: no `innerHTML` anywhere in the panel. */
+function forgetIcon(): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(ns, 'path');
+  for (const [name, value] of [['d', 'M7 7l10 10M17 7L7 17'], ['stroke', 'currentColor'],
+    ['stroke-width', '1.9'], ['stroke-linecap', 'round']]) {
+    path.setAttribute(name!, value!);
+  }
+  svg.append(path);
+  return svg;
+}
 
 function buildProfileForm(): void {
   ui.profile.replaceChildren();
@@ -427,41 +558,222 @@ function buildProfileForm(): void {
     input.autocomplete = 'off';
     input.addEventListener('change', () => {
       vault.setProfile(key, input.value);
-      void persistProfile();
+      void saveVault();
       updateVaultStat();
     });
 
     label.append(span, input);
     ui.profile.append(label);
   }
+  buildMemoList();
+}
+
+/** Answers learned beyond the profile's own keys, each one forgettable. */
+function buildMemoList(): void {
+  const memos = vault.memoEntries();
+  ui.memosSection.hidden = memos.length === 0;
+  ui.memos.replaceChildren(
+    ...memos.map((memo) => {
+      const li = document.createElement('li');
+      const label = Object.assign(document.createElement('span'), { className: 'memo__label', textContent: memo.label });
+      label.title = memo.label;
+      const value = Object.assign(document.createElement('span'), {
+        className: 'memo__value',
+        textContent: maskValue(memo.value ?? ''),
+      });
+      const forget = Object.assign(document.createElement('button'), { className: 'memo__forget' });
+      forget.append(forgetIcon());
+      forget.setAttribute('aria-label', `Forget ${memo.label}`);
+      forget.title = 'Forget this answer';
+      forget.addEventListener('click', () => {
+        vault.forgetMemo(memo.label);
+        buildMemoList();
+        updateVaultStat();
+        void saveVault();
+        log(`Forgot your answer for “${memo.label}”.`);
+      });
+      li.append(label, value, forget);
+      return li;
+    }),
+  );
 }
 
 /**
- * `storage.session` lives in memory and is wiped when the browser closes.
- * `storage.local` would write PII to disk in plaintext; encrypted persistence is a
- * later piece of work, and until then not writing it at all is the safer default.
+ * Two copies, for two lifetimes. `storage.session` is memory only and survives the
+ * panel closing, not the browser. When the user has turned on Remember, the same
+ * data is also sealed to disk with AES-GCM under a non-extractable key
+ * (lib/pii/vault-store.ts, D36). Plaintext is never written to disk.
  */
-async function persistProfile(): Promise<void> {
+async function saveVault(): Promise<void> {
+  const backup = vault.backup();
   try {
-    await browser.storage?.session?.set({
-      [PROFILE_STORAGE_KEY]: Object.fromEntries(vault.profileEntries()),
-    });
+    await browser.storage?.session?.set({ [PROFILE_STORAGE_KEY]: backup });
   } catch {
-    /* unavailable: the profile simply stays in memory */
+    /* unavailable: the vault simply stays in memory */
+  }
+  if (!ui.vaultRemember.checked) return;
+  try {
+    await sealVault(backup, vaultStores);
+  } catch (error) {
+    log(`Could not save the vault on this device: ${error instanceof Error ? error.message : error}`, 'err');
   }
 }
 
-async function restoreProfile(): Promise<void> {
+async function restoreVault(): Promise<void> {
   try {
-    const stored = await browser.storage?.session?.get(PROFILE_STORAGE_KEY);
-    const profile = stored?.[PROFILE_STORAGE_KEY] as Record<string, string> | undefined;
-    if (!profile) return;
-    for (const key of PROFILE_KEYS) {
-      if (profile[key]) vault.setProfile(key, profile[key]!);
+    const stored = await browser.storage?.local?.get(REMEMBER_STORAGE_KEY);
+    ui.vaultRemember.checked = stored?.[REMEMBER_STORAGE_KEY] === true;
+  } catch {
+    /* not remembered */
+  }
+  try {
+    // This browser session's copy first: it is the most recent.
+    const session = await browser.storage?.session?.get(PROFILE_STORAGE_KEY);
+    const held = session?.[PROFILE_STORAGE_KEY] as VaultBackup | Record<string, string> | undefined;
+    if (held && (held as VaultBackup).v === 1) {
+      vault.restore(held as VaultBackup);
+      return;
+    }
+    if (held) {
+      // A profile saved by an earlier version, as a plain key → value record.
+      for (const key of PROFILE_KEYS) {
+        const value = (held as Record<string, string>)[key];
+        if (value) vault.setProfile(key, value);
+      }
+      return;
     }
   } catch {
-    /* nothing stored */
+    /* nothing in this session */
   }
+  if (!ui.vaultRemember.checked) return;
+  const saved = await openVault(vaultStores);
+  if (saved) {
+    vault.restore(saved);
+    log('Opened your vault, saved on this device.');
+  }
+}
+
+/* ---- Learning from the page ---------------------------------------- */
+
+interface Suggestion {
+  label: string;
+  value: string;
+  type: PiiType;
+  /** The profile key it would fill, when it is one. */
+  key: ProfileKey | null;
+}
+
+let suggestions: Suggestion[] = [];
+
+/**
+ * Details the user has already typed into this page's form, which the vault does
+ * not hold yet. Read from the payload's own elements: a sensitive field's value is
+ * a token there, and the vault — here, on the device — knows what it stands for.
+ * Only form fields: text on the page could be anyone's.
+ */
+function findSuggestions(output: PipelineOutput): Suggestion[] {
+  const found: Suggestion[] = [];
+  const seen = new Set<string>();
+  for (const el of output.request.elements) {
+    if (!el.sensitive || !el.value || NEVER_REMEMBERED.has(el.sensitive)) continue;
+    if (el.value.startsWith('⟦PROFILE.')) continue; // already the user's own
+    const value = vault.valueOf(el.value);
+    if (!value) continue;
+    const label = questionLabel(el);
+    const key = profileKeyForField(el.sensitive, label);
+    if (key ? vault.getProfile(key) !== undefined : !normalizeLabel(label) || vault.recall(label)) continue;
+    const id = key ?? normalizeLabel(label);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    found.push({ label: label ?? key ?? el.sensitive, value, type: el.sensitive, key });
+  }
+  return found;
+}
+
+function offerToLearn(output: PipelineOutput): void {
+  showSuggestions(
+    findSuggestions(output),
+    'Save your details from this page?',
+    'Found in this form. Kept in your vault on this device, never sent.',
+  );
+}
+
+/**
+ * Read an ID card the user picked, on this device, and offer what it says for the
+ * vault. The image is drawn to a canvas, read by OCR, and dropped: `readDocument`
+ * returns only what the validators recognise, and nothing is kept until Save.
+ */
+async function scanDocument(file: File): Promise<void> {
+  const url = URL.createObjectURL(file);
+  ui.idScanButton.setAttribute('aria-busy', 'true');
+  setStatus('busy', 'Reading the card on this device');
+  try {
+    const image = await loadImage(url);
+    const found = await vision.readDocument(image, image.naturalWidth, image.naturalHeight);
+    const offer = documentSuggestions(found, (key) => vault.getProfile(key) !== undefined);
+    showSuggestions(
+      offer,
+      'Save what this card says?',
+      'Read on this device by OCR. The image was not kept, and nothing is sent.',
+    );
+    ui.learn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    log(
+      offer.length
+        ? `Read ${offer.length} detail${offer.length === 1 ? '' : 's'} off the card, on this device.`
+        : found.length
+          ? 'Everything on the card is already in your vault.'
+          : 'Could not read an Aadhaar number, PAN or date of birth on that image. Try a sharper, straight-on photo.',
+    );
+    setStatus('idle', 'Ready');
+  } catch (error) {
+    setStatus('err', 'Could not read the card');
+    log(`Could not read the card: ${error instanceof Error ? error.message : error}`, 'err');
+  } finally {
+    URL.revokeObjectURL(url);
+    ui.idScan.value = ''; // the file handle goes with it
+    ui.idScanButton.removeAttribute('aria-busy');
+  }
+}
+
+function showSuggestions(list: Suggestion[], title: string, note: string): void {
+  suggestions = list;
+  ui.learnTitle.textContent = title;
+  ui.learnNote.textContent = note;
+  ui.learn.hidden = suggestions.length === 0;
+  ui.learnList.replaceChildren(
+    ...suggestions.map((s, i) => {
+      const li = document.createElement('li');
+      const label = document.createElement('label');
+      const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: true });
+      box.dataset.index = String(i);
+      const what = Object.assign(document.createElement('span'), {
+        className: 'learn__what',
+        textContent: s.key ? `${s.key.replace(/_/g, ' ').toLowerCase()}` : s.label,
+      });
+      what.title = s.label;
+      const value = Object.assign(document.createElement('span'), {
+        className: 'learn__value',
+        textContent: maskValue(s.value),
+      });
+      label.append(box, what, value);
+      li.append(label);
+      return li;
+    }),
+  );
+}
+
+function saveSuggestions(): void {
+  const chosen = [...ui.learnList.querySelectorAll<HTMLInputElement>('input[type=checkbox]')]
+    .filter((box) => box.checked)
+    .map((box) => suggestions[Number(box.dataset.index)]!)
+    .filter(Boolean);
+  for (const s of chosen) vault.learn(s.label, s.value, s.type);
+  suggestions = [];
+  ui.learn.hidden = true;
+  buildProfileForm();
+  updateVaultStat();
+  void saveVault();
+  log(`Saved ${chosen.length} detail${chosen.length === 1 ? '' : 's'} from this page to your vault.`);
 }
 
 /** The server URL is not PII, so ordinary local storage is fine for it. */
@@ -725,10 +1037,11 @@ function renderOutput(output: PipelineOutput): void {
  */
 const PINNED_TAB = Number(new URLSearchParams(location.search).get('tab')) || undefined;
 
-function makeAgent(): Agent {
+function makeAgent(conversation?: Array<{ task: string; summary?: string }>): Agent {
   return new Agent(
     vault,
     {
+      ...(conversation?.length ? { conversation } : {}),
       targetTabId: PINNED_TAB,
       serverUrl: ui.serverUrl.value.trim(),
       serverToken: ui.serverToken.value.trim() || undefined,
@@ -753,6 +1066,7 @@ async function analyze(): Promise<void> {
       standaloneStep++,
     );
     renderOutput(output);
+    offerToLearn(output);
 
     if (output.egress.ok) {
       setStatus('ok', 'Safe to send');
@@ -785,21 +1099,38 @@ async function run(): Promise<void> {
 
   setRunning(true);
   showError(null);
-  hideResult();
   // Open the log for the duration: a multi-step task is the one time the user
   // wants to watch it work, and a collapsed panel makes it look like nothing is.
   ui.panelActivity.open = true;
-  agent = makeAgent();
+  const conversation = conversationSoFar();
+  const turn = startTurn(task);
+  ui.task.value = ''; // sent, as in any chat
+  agent = makeAgent(conversation);
   log(`Task: ${task}`);
 
+  const started = performance.now();
+  const tally: Tally = { steps: 0, filled: 0, local: 0 };
+  let last: { status: Status; text: string } = { status: 'busy', text: '' };
+  let summary: string | undefined;
+
   await agent.run(task, {
-    onStatus: (status, text) => setStatus(status, capitalise(text)),
+    onStatus: (status, text) => {
+      setStatus(status, capitalise(text));
+      setLive(turn, status, capitalise(text));
+      last = { status, text };
+    },
     onLog: log,
     onPerceived: renderOutput,
     onStep: (report: StepReport) => {
       renderTimings(report.output.timings);
       countLedger(report);
+      tally.steps += 1;
+      if (report.response.planner === 'local') tally.local += 1;
+      if (report.result?.ok && (report.response.action === 'type' || report.response.action === 'select')) {
+        tally.filled += 1;
+      }
       if (report.response.action === 'done') {
+        summary = report.response.summary;
         // For a question, this text is the whole answer.
         showResult(
           'Task complete',
@@ -816,8 +1147,19 @@ async function run(): Promise<void> {
     },
     confirm: askConfirmation,
     ask: askForValue,
+    onLearned: (label, profileKey) => {
+      log(
+        profileKey
+          ? `Learned your ${profileKey.replace(/_/g, ' ').toLowerCase()} — saved to your vault.`
+          : `Learned your answer for “${label}” — it will be filled next time without asking.`,
+      );
+      buildProfileForm();
+      updateVaultStat();
+      void saveVault();
+    },
   });
 
+  finishTurn(turn, { ...last, summary, tally, ms: performance.now() - started });
   setRunning(false);
   agent = null;
 }
@@ -913,7 +1255,8 @@ ui.clear.addEventListener('click', () => {
   ledger.local = 0;
 
   clearPreview();
-  hideResult();
+  clearConversation();
+  ui.learn.hidden = true;
   renderDetections([]);
   renderTimings({});
   renderLedger();
@@ -936,9 +1279,54 @@ ui.profileDemo.addEventListener('click', () => {
     vault.setProfile(key as ProfileKey, value);
   }
   buildProfileForm();
-  void persistProfile();
+  void saveVault();
   updateVaultStat();
   log('Loaded the demo profile (fake data).');
+});
+
+ui.learnSave.addEventListener('click', saveSuggestions);
+ui.idScan.addEventListener('change', () => {
+  const file = ui.idScan.files?.[0];
+  if (file) void scanDocument(file);
+});
+ui.learnDismiss.addEventListener('click', () => {
+  suggestions = [];
+  ui.learn.hidden = true;
+});
+
+ui.vaultRemember.addEventListener('change', async () => {
+  const on = ui.vaultRemember.checked;
+  try {
+    await browser.storage?.local?.set({ [REMEMBER_STORAGE_KEY]: on });
+    if (on) {
+      await sealVault(vault.backup(), vaultStores);
+      log('Your vault is now saved on this device, encrypted. It stays after the browser closes.');
+    } else {
+      await forgetVault(vaultStores);
+      log('Removed the saved copy from this device. This browser session keeps it until you close it.');
+    }
+  } catch (error) {
+    ui.vaultRemember.checked = !on;
+    log(`Could not change where the vault is kept: ${error instanceof Error ? error.message : error}`, 'err');
+  }
+});
+
+ui.vaultForget.addEventListener('click', async () => {
+  const proceed = await askConfirmation(
+    'Forget your profile and every answer the agent has learned — here and on this device?',
+  );
+  setStatus('idle', 'Ready');
+  if (!proceed) return;
+  vault.clearAll();
+  try {
+    await forgetVault(vaultStores);
+    await browser.storage?.session?.remove(PROFILE_STORAGE_KEY);
+  } catch {
+    /* nothing was saved */
+  }
+  buildProfileForm();
+  updateVaultStat();
+  log('Vault emptied. Nothing of yours is kept on this device.');
 });
 
 ui.visionToggle.addEventListener('change', () => {
@@ -970,7 +1358,7 @@ window.addEventListener('pagehide', () => {
 });
 
 void (async () => {
-  await Promise.all([restoreProfile(), restoreServerUrl()]);
+  await Promise.all([restoreVault(), restoreServerUrl()]);
   buildProfileForm();
   updateVaultStat();
   renderLedger();

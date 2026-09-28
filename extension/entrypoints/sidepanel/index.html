@@ -153,6 +153,14 @@
           <p id="error" class="notice notice--error" hidden></p>
 
           <!--
+            The conversation. Each task is a turn: what the user asked, a live line
+            while the agent works, and the answer. Newest first, so the prompt above
+            never scrolls out of reach. Earlier turns go to the planner — sanitized like
+            the task — so a follow-up ("now the next page") is understood.
+          -->
+          <ol class="thread" id="thread" aria-label="Conversation" aria-live="polite" hidden></ol>
+
+          <!--
             The agent's answer.
 
             Without this the only sign a task finished was the status pill turning
@@ -179,6 +187,24 @@
                       stroke-linecap="round"/>
               </svg>
             </button>
+          </section>
+
+          <!--
+            The vault fills itself. After Analyze, details the user has already typed
+            into this page's form are offered for saving, so a form filled once by
+            hand is the last one filled by hand. Values are masked here: a demo is on a
+            projector. Saving puts them in the vault on this device; nothing is sent.
+          -->
+          <section class="learn" id="learn" hidden>
+            <div class="learn__head">
+              <b id="learn-title">Save your details from this page?</b>
+              <small id="learn-note">Found in this form. Kept in your vault on this device, never sent.</small>
+            </div>
+            <ul id="learn-list" class="learn__list"></ul>
+            <div class="learn__actions">
+              <button id="learn-save" class="btn btn--primary">Save to vault</button>
+              <button id="learn-dismiss" class="btn btn--ghost">Not now</button>
+            </div>
           </section>
         </section>
 
@@ -305,11 +331,29 @@
             </summary>
             <div class="disclosure__body">
               <p class="fineprint">
-                Held in memory on this device and dropped when the browser closes. The
-                server only ever learns which keys exist — never their values.
+                Fills itself: every answer you give the agent is learned, so it asks only
+                once. Kept in memory and dropped when the browser closes, unless you turn on
+                Remember. The server only ever learns which keys exist, never their values.
               </p>
+              <label class="toggle">
+                <input type="checkbox" id="vault-remember" />
+                <span class="toggle__track"><span class="toggle__thumb"></span></span>
+                <span class="toggle__label">Remember on this device (encrypted)</span>
+              </label>
               <div id="profile" class="profile"></div>
+              <div class="memos" id="memos-section" hidden>
+                <span class="memos__title">Learned from your answers</span>
+                <ul id="memos" class="list list--memos"></ul>
+              </div>
+              <!-- A label, so the whole button opens the file picker. The image is read
+                   by OCR here and discarded; only what the validators recognise is kept,
+                   and only after the user saves it. -->
+              <label class="btn btn--soft btn--wide" id="id-scan-button">
+                <input type="file" id="id-scan" accept="image/*" hidden />
+                Scan an ID card — read on this device
+              </label>
               <button id="profile-demo" class="btn btn--soft btn--wide">Load demo profile (fake data)</button>
+              <button id="vault-forget" class="btn btn--ghost btn--wide">Forget everything</button>
             </div>
           </details>
 

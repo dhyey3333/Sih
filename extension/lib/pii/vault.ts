@@ -6,11 +6,14 @@
  * it into the page. The server never learns anything but which *kinds* of values
  * exist and which ones repeat.
  *
- * In-memory only, and scoped to the side panel session (see docs/DECISIONS.md).
- * When the panel closes, the values are gone.
+ * In memory, scoped to the side panel session (see docs/DECISIONS.md). The user's
+ * own data — the profile and the answers it has learned — can be saved to the
+ * device encrypted when the user turns that on (lib/pii/vault-store.ts); values
+ * merely seen on a page never are.
  */
 
 import type { PiiType } from '../protocol';
+import { memoSlug, NEVER_REMEMBERED, normalizeLabel, profileKeyForField } from './memory';
 import { normalizeForCompare } from './validators';
 
 /** Keys the user can fill in on the side panel's profile form. */
@@ -64,6 +67,39 @@ export interface KnownValueRange {
 }
 
 /**
+ * An answer the user gave once, remembered against the field that asked for it.
+ * Exactly one of `profileKey` (the answer went into the profile; this label is an
+ * alias for it) and `value` is set.
+ */
+export interface Memo {
+  /** The field's label as the page wrote it, for the panel. */
+  label: string;
+  value?: string;
+  /** Set for a sensitive answer: its value is then a vault secret with a token. */
+  type?: PiiType;
+  /** ⟦PROFILE.<slug>⟧ for a sensitive answer. */
+  slug?: string;
+  profileKey?: ProfileKey;
+}
+
+/** The user's own data, and nothing else: what may be saved to the device. */
+export interface VaultBackup {
+  v: 1;
+  profile: Partial<Record<ProfileKey, string>>;
+  memos: Memo[];
+}
+
+/** What learning an answer did, so the caller can say so. */
+export interface Learned {
+  /** What to type: a token for anything sensitive, the value itself otherwise. */
+  text: string;
+  /** Set when the answer filled a profile key. */
+  profileKey?: ProfileKey;
+  /** False for a secret that is never kept (a password, an OTP, a card). */
+  remembered: boolean;
+}
+
+/**
  * Values shorter than this are never used for substring matching. A 3-character
  * name or a 3-digit CVV appears inside unrelated words and numbers constantly,
  * and would make the egress guard block every request.
@@ -78,6 +114,8 @@ export class Vault {
   /** per-type counter for `⟦EMAIL_1⟧`, `⟦EMAIL_2⟧`, ... */
   private readonly counters = new Map<PiiType, number>();
   private readonly profile = new Map<ProfileKey, string>();
+  /** normalized label -> an answer the user gave for a field with that label */
+  private readonly memos = new Map<string, Memo>();
   /** The site being read now; new page values are recorded as seen there. */
   private page = '';
 
@@ -127,6 +165,136 @@ export class Vault {
   /** Present the profile to the UI. Never send this anywhere. */
   profileEntries(): Array<[ProfileKey, string]> {
     return [...this.profile.entries()];
+  }
+
+  /* ---------------- learned answers ---------------- */
+
+  /**
+   * Learn the user's answer for a field, and return what to type into it.
+   *
+   * The answer goes into the profile when the field plainly asks for one of its
+   * keys, and is remembered against the field's label otherwise (lib/pii/memory.ts).
+   * Either way it is the user's own data from here on: no site of origin, so the
+   * cross-site gate (D32) lets it be used anywhere, like the rest of the profile.
+   */
+  learn(label: string | undefined, answer: string, type?: PiiType): Learned {
+    const value = answer.trim();
+    if (!value) return { text: '', remembered: false };
+
+    // Never kept. Tokenized for this session, exactly as before.
+    if (type && NEVER_REMEMBERED.has(type)) {
+      return { text: this.tokenize(type, value), remembered: false };
+    }
+
+    const normalized = normalizeLabel(label);
+    const key = profileKeyForField(type, label);
+    if (key) {
+      const held = this.profile.get(key);
+      if (held === undefined || normalizeForCompare(held) === normalizeForCompare(value)) {
+        if (held === undefined) this.setProfile(key, value);
+        if (normalized) this.memos.set(normalized, { label: label!.trim(), profileKey: key });
+        return { text: `⟦PROFILE.${key}⟧`, profileKey: key, remembered: true };
+      }
+      // A different value for a key the profile already holds ("Mobile" answered with
+      // a second number): keep the profile as it is, and remember this one by label.
+    }
+
+    if (!normalized) {
+      return { text: type ? this.tokenize(type, value) : value, remembered: false };
+    }
+
+    if (!type) {
+      this.memos.set(normalized, { label: label!.trim(), value });
+      return { text: value, remembered: true };
+    }
+
+    const existing = this.memos.get(normalized);
+    const slug = existing?.slug ?? memoSlug(label!, this.memos.size + 1, this.takenSlugs());
+    const token = `⟦PROFILE.${slug}⟧`;
+    if (existing?.value) this.normalizedToToken.delete(normalizeForCompare(existing.value));
+    this.entries.set(token, { value, type });
+    this.normalizedToToken.set(normalizeForCompare(value), token);
+    this.memos.set(normalized, { label: label!.trim(), value, type, slug });
+    return { text: token, remembered: true };
+  }
+
+  /**
+   * What the user said last time a field asked this question: a token for a
+   * sensitive answer or a profile alias, the value itself for a plain one.
+   * Undefined when nothing is remembered, or the profile key it pointed at is gone.
+   */
+  recall(label: string | undefined): { text: string; memo: Memo } | undefined {
+    const memo = this.memos.get(normalizeLabel(label));
+    if (!memo) return undefined;
+    if (memo.profileKey) {
+      return this.profile.has(memo.profileKey) ? { text: `⟦PROFILE.${memo.profileKey}⟧`, memo } : undefined;
+    }
+    if (memo.slug) return { text: `⟦PROFILE.${memo.slug}⟧`, memo };
+    return memo.value !== undefined ? { text: memo.value, memo } : undefined;
+  }
+
+  /** Remembered answers for the panel — everything except the profile aliases. */
+  memoEntries(): Memo[] {
+    return [...this.memos.values()].filter((m) => !m.profileKey);
+  }
+
+  forgetMemo(label: string): void {
+    const normalized = normalizeLabel(label);
+    const memo = this.memos.get(normalized);
+    if (!memo) return;
+    this.memos.delete(normalized);
+    if (memo.slug) {
+      this.entries.delete(`⟦PROFILE.${memo.slug}⟧`);
+      if (memo.value) this.normalizedToToken.delete(normalizeForCompare(memo.value));
+    }
+  }
+
+  /** Keys of remembered sensitive answers: sent like profile keys, never with values. */
+  memoKeys(): string[] {
+    return [...this.memos.values()].flatMap((m) => (m.slug ? [m.slug] : []));
+  }
+
+  private takenSlugs(): Set<string> {
+    return new Set<string>([...PROFILE_KEYS, ...this.memoKeys()]);
+  }
+
+  /* ---------------- saving and restoring ---------------- */
+
+  /**
+   * The user's own data: the profile and the answers it has learned. Never a value
+   * that was only seen on a page — those belong to the session they were seen in.
+   */
+  backup(): VaultBackup {
+    return {
+      v: 1,
+      profile: Object.fromEntries(this.profile) as Partial<Record<ProfileKey, string>>,
+      memos: [...this.memos.values()].map((m) => ({ ...m })),
+    };
+  }
+
+  /** Load a backup over what is held. Anything malformed is skipped, not trusted. */
+  restore(backup: VaultBackup | undefined): void {
+    if (!backup || backup.v !== 1) return;
+    for (const key of PROFILE_KEYS) {
+      const value = backup.profile?.[key];
+      if (typeof value === 'string' && value.trim()) this.setProfile(key, value);
+    }
+    for (const memo of backup.memos ?? []) {
+      const normalized = normalizeLabel(memo?.label);
+      if (!normalized) continue;
+      if (memo.profileKey && (PROFILE_KEYS as readonly string[]).includes(memo.profileKey)) {
+        this.memos.set(normalized, { label: memo.label, profileKey: memo.profileKey });
+      } else if (typeof memo.value === 'string' && memo.value.trim()) {
+        if (memo.type && memo.slug && /^[A-Z][A-Z0-9_]*$/.test(memo.slug)) {
+          const token = `⟦PROFILE.${memo.slug}⟧`;
+          this.entries.set(token, { value: memo.value, type: memo.type });
+          this.normalizedToToken.set(normalizeForCompare(memo.value), token);
+          this.memos.set(normalized, { label: memo.label, value: memo.value, type: memo.type, slug: memo.slug });
+        } else {
+          this.memos.set(normalized, { label: memo.label, value: memo.value });
+        }
+      }
+    }
   }
 
   /* ---------------- tokenization ---------------- */
@@ -270,11 +438,11 @@ export class Vault {
     return this.entries.size;
   }
 
-  /** Drop everything except the profile, which the user typed deliberately. */
+  /** Drop everything except the user's own data: the profile and learned answers. */
   clearSession(): void {
-    const profile = [...this.profile.entries()];
+    const own = this.backup();
     this.clearAll();
-    for (const [key, value] of profile) this.setProfile(key, value);
+    this.restore(own);
   }
 
   clearAll(): void {
@@ -282,5 +450,6 @@ export class Vault {
     this.normalizedToToken.clear();
     this.counters.clear();
     this.profile.clear();
+    this.memos.clear();
   }
 }

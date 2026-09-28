@@ -9,7 +9,7 @@
  */
 async function runEval(options) {
   const {
-    buildSnapshot, detectionsFromFields, detectionsFromText, detectionsFromOpaqueFrames,
+    buildSnapshot,
     fuseDetections, Vault, DEMO_PROFILE, VisionLayer, deepQueryAll,
   } = window.__privagent;
 
@@ -66,11 +66,18 @@ async function runEval(options) {
     })
     .filter((t) => t.rect.w >= 2 && t.rect.h >= 2 && t.rect.y + t.rect.h > 0 && t.rect.y < innerHeight);
 
-  /* ---------- a stand-in capture ---------- */
+  /* ---------- the capture ---------- */
 
-  // Playwright's screenshot is taken outside the page, so it cannot be fed back in.
-  // Compositing the page's own images onto a flat ground gives the vision layer
-  // exactly what it needs (image pixels at their real rects) without that round trip.
+  // The real screenshot, taken by the runner just before this call and passed in —
+  // what `captureVisibleTab` gives the extension: text, form fields, images, all of it.
+  //
+  // It used to be a stand-in: the page's <img> elements composited onto a flat ground,
+  // with no text at all. That starved the vision layer of exactly what it gets wrong
+  // on a real screen (a detector box on an ordinary sentence, an email field called a
+  // card), so its false positives never reached the precision column. And the leak
+  // test, which OCRs this image after redaction, could never find a leaked *text*
+  // value — there was no text in it to find. `capture: 'composite'` keeps the old
+  // behaviour for comparison.
   const dpr = devicePixelRatio || 1;
   const width = Math.round(innerWidth * dpr);
   const height = Math.round(innerHeight * dpr);
@@ -78,15 +85,24 @@ async function runEval(options) {
   shot.width = width;
   shot.height = height;
   const ctx = shot.getContext('2d');
-  ctx.fillStyle = getComputedStyle(document.body).backgroundColor || '#ffffff';
-  ctx.fillRect(0, 0, width, height);
-  for (const img of document.querySelectorAll('img')) {
-    const r = img.getBoundingClientRect();
-    if (r.width < 2 || r.bottom < 0 || r.top > innerHeight) continue;
-    try {
-      ctx.drawImage(img, r.left * dpr, r.top * dpr, r.width * dpr, r.height * dpr);
-    } catch {
-      /* a tainted image cannot be composited; the DOM layer still covers it */
+  let capture = 'composite';
+  if (options.shot) {
+    const img = new Image();
+    img.src = options.shot;
+    await img.decode();
+    ctx.drawImage(img, 0, 0, width, height);
+    capture = 'screenshot';
+  } else {
+    ctx.fillStyle = getComputedStyle(document.body).backgroundColor || '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    for (const img of document.querySelectorAll('img')) {
+      const r = img.getBoundingClientRect();
+      if (r.width < 2 || r.bottom < 0 || r.top > innerHeight) continue;
+      try {
+        ctx.drawImage(img, r.left * dpr, r.top * dpr, r.width * dpr, r.height * dpr);
+      } catch {
+        /* a tainted image cannot be composited; the DOM layer still covers it */
+      }
     }
   }
 
@@ -127,14 +143,11 @@ async function runEval(options) {
     }
 
     const t1 = performance.now();
-    const raw = [
-      ...detectionsFromFields(snapshot.elements, vault),
-      ...detectionsFromText(snapshot, vault),
-      // Regions we were not allowed to read. Part of the shipped pipeline, so part
-      // of what is scored — leaving them out would flatter the DOM-only column.
-      ...detectionsFromOpaqueFrames(snapshot),
-      ...visionDetections,
-    ];
+    // The pipeline's own detection step (lib/pipeline.ts collectDetections): the DOM
+    // layer, frames we were not allowed to read, and the vision layer after the same
+    // filters the extension applies. Assembling the list here instead let the two
+    // drift — the harness used to score vision boxes the extension would have dropped.
+    const raw = window.__privagent.collectDetections(snapshot, vault, visionDetections);
     const detections = fuseDetections(raw, { pad: 3, bounds: snapshot.viewport });
     const detectMs = performance.now() - t1;
 
@@ -182,6 +195,10 @@ async function runEval(options) {
       f1: precision && recall ? (2 * precision * recall) / (precision + recall) : null,
       missed,
       falsePositiveTypes: falsePositives.map((d) => d.type),
+      // Which layer drew each box that covers no ground truth, and how sure it was.
+      falsePositiveSources: falsePositives.map(
+        (d) => `${d.type} ${d.detail ?? d.source} ${Math.round(d.confidence * 100)}%`,
+      ),
     };
   };
 
@@ -272,6 +289,7 @@ async function runEval(options) {
 
   return {
     url: location.pathname,
+    capture,
     viewport: { w: innerWidth, h: innerHeight, dpr },
     gpu: await describeAdapter(),
     withVision: {
@@ -319,7 +337,9 @@ async function runEval(options) {
 async function describeAdapter() {
   if (!navigator.gpu) return { available: false };
   try {
-    const adapter = await navigator.gpu.requestAdapter();
+    // The same preference the runtime asks with (lib/vision/runtime.ts), so this names
+    // the adapter the sessions actually ran on.
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) return { available: false };
     const info = adapter.info ?? (await adapter.requestAdapterInfo?.()) ?? {};
     const text = `${info.vendor ?? ''} ${info.architecture ?? ''} ${info.description ?? ''}`.toLowerCase();

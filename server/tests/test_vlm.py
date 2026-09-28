@@ -61,6 +61,19 @@ class TestUserMessage:
         assert 'SCREEN TEXT' in message
         assert 'Status: "Approved"\nContact ⟦EMAIL_1⟧' in message  # not JSON-escaped
 
+    def test_carries_earlier_turns_before_the_task(self):
+        payload = sanitized_request(
+            task="Now what is left?",
+            conversation=[{"task": "Fill this form", "summary": "Filled 5 fields; asked about ⟦PROFILE.FATHER_NAME⟧."}],
+        )
+        message = build_user_message(StepRequest(**payload))
+        assert "EARLIER IN THIS CONVERSATION" in message
+        assert message.index("- user: Fill this form") < message.index("TASK: Now what is left?")
+        assert "you: Filled 5 fields" in message
+
+    def test_says_nothing_about_a_conversation_there_was_not(self):
+        assert "EARLIER IN THIS CONVERSATION" not in build_user_message(StepRequest(**sanitized_request()))
+
     def test_says_when_the_page_goes_on(self):
         payload = sanitized_request()
         payload["page"] = {**payload["page"], "more_below": True}

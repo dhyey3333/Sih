@@ -31,13 +31,15 @@ import { runPipeline, type PipelineOutput } from './pipeline';
 import { checkInventedValue, checkRetype, checkValueTarget, friendlyType } from './type-gate';
 import {
   IRREVERSIBLE_HINTS,
+  type ConversationTurn,
   type HistoryEntry,
   type StepRequest,
   type StepResponse,
   type WireElement,
 } from './protocol';
+import { questionLabel } from './pii/memory';
 import { sanitizeText } from './pii/sanitize';
-import { TOKEN_PATTERN, type Vault } from './pii/vault';
+import { TOKEN_PATTERN, type ProfileKey, type Vault } from './pii/vault';
 import { effectiveDpr, loadImage } from './redact/render';
 import type { VisionLayer } from './vision';
 import { VISION_ID_BASE, type VisionElement } from './vision/ui-detector';
@@ -63,6 +65,8 @@ export interface AgentOptions {
    * embeds). On by default — see `detectionsFromOpaqueFrames`.
    */
   coverFrames?: boolean;
+  /** Earlier turns of this panel session, oldest first, for follow-up requests. */
+  conversation?: ConversationTurn[];
   /**
    * Act on this tab rather than "the active tab of the panel's window". Set when the
    * panel runs in its own window (browsers with no side panel, like Opera — and the
@@ -94,6 +98,11 @@ export interface AgentCallbacks {
    * and never sent: a sensitive field's answer goes on the wire only as a token.
    */
   ask?: (question: string, field: { label?: string; options?: string[] }) => Promise<string | null>;
+  /**
+   * An answer was learned into the vault — into the profile when `profileKey` is set,
+   * otherwise remembered against its label. The panel saves the vault when told.
+   */
+  onLearned?: (label: string, profileKey?: ProfileKey) => void;
 }
 
 /** A field a person could type or pick an answer into. Never a password. */
@@ -287,22 +296,38 @@ export class Agent {
           // request for consent, and keeps the old path below.
           if (isFillable(target) && callbacks.ask) {
             const options = answerOptions(target, output.request.elements);
-            const answer = await callbacks.ask(question, {
-              label: target.role === 'radio' ? target.group?.replace(/_/g, ' ') : target.label,
-              options,
-            });
-            this.throwIfStopped();
-            if (answer === null || !answer.trim()) {
-              this.remember({ action: 'ask_user', element_id: target.id, ok: false, error: 'declined by user' });
-              callbacks.onStatus('idle', 'stopped by you');
-              callbacks.onLog('You skipped the question. Stopping.');
-              return;
+            const label = questionLabel(target);
+
+            // Asked before, the same way: the answer is already in the vault (D35). A
+            // choice is only reused if it is still one of the choices on offer.
+            const recalled = this.vault.recall(label);
+            const reusable =
+              recalled &&
+              (!options?.length ||
+                options.some((o) => o.trim().toLowerCase() === this.vault.resolve(recalled.text).trim().toLowerCase()));
+
+            let value: string;
+            if (recalled && reusable) {
+              value = recalled.text;
+              callbacks.onLog(`↺ “${recalled.memo.label}”: you answered this before — filled from your vault`);
+            } else {
+              const answer = await callbacks.ask(question, { label, options });
+              this.throwIfStopped();
+              if (answer === null || !answer.trim()) {
+                this.remember({ action: 'ask_user', element_id: target.id, ok: false, error: 'declined by user' });
+                callbacks.onStatus('idle', 'stopped by you');
+                callbacks.onLog('You skipped the question. Stopping.');
+                return;
+              }
+              // Learned, so the next form that asks this is filled without a question.
+              // A sensitive answer becomes a vault secret with a token, so the next
+              // payload carries ⟦PROFILE.FATHER_NAME⟧ and the egress guard knows to block
+              // the raw value. A plain answer ("Occupation") stays plain on the page but
+              // is still kept out of the history we send back.
+              const learned = this.vault.learn(label, answer, target.sensitive);
+              value = learned.text;
+              if (learned.remembered) callbacks.onLearned?.(label ?? '', learned.profileKey);
             }
-            // A sensitive field's answer becomes a vault secret with a token, so the
-            // next payload carries ⟦AADHAAR_1⟧ and the egress guard knows to block the
-            // raw value. A plain field's answer ("Occupation") stays plain on the page
-            // but is still kept out of the history we send back.
-            const value = target.sensitive ? this.vault.tokenize(target.sensitive, answer.trim()) : answer.trim();
             const filled: StepResponse = options?.length
               ? { action: 'select', element_id: target.id, option: value, planner: response.planner }
               : { action: 'type', element_id: target.id, text: value, planner: response.planner };
@@ -403,6 +428,7 @@ export class Agent {
       vault: this.vault,
       sessionId: this.sessionId,
       task,
+      conversation: this.options.conversation,
       step,
       history: this.history.slice(-8),
       visionDetections: vision.detections,

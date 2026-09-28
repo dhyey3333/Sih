@@ -16,6 +16,7 @@ import { buildSnapshot } from '../lib/dom/snapshot';
 import { deepQueryAll, opaqueFrames } from '../lib/dom/deep';
 import { scorePage } from '../lib/eval/score-page';
 import {
+  collectDetections,
   detectionsFromFields,
   detectionsFromOpaqueFrames,
   detectionsFromText,
@@ -39,6 +40,8 @@ const api = {
   deepQueryAll,
   opaqueFrames,
   DEMO_PROFILE,
+  /** The pipeline's own detection step, vision filters included — what the eval scores. */
+  collectDetections,
   detectionsFromFields,
   detectionsFromText,
   detectionsFromOpaqueFrames,

@@ -14,6 +14,7 @@
  */
 
 import type {
+  ConversationTurn,
   Detection,
   DisclosureLevel,
   DomSnapshot,
@@ -30,6 +31,7 @@ import { buildVisibleText, dismissFutureDateBoxes } from './pii/visible-text';
 import type { Vault } from './pii/vault';
 import { fuseDetections, redactedAreaRatio } from './redact/fuse';
 import type { VisionStats } from './vision';
+import { dismissBoxesTheDomRead } from './vision/dom-read';
 import type { VisionElement } from './vision/ui-detector';
 import { dataUrlToBase64, drawSetOfMarks, renderRedacted, toJpegDataUrl } from './redact/render';
 
@@ -51,6 +53,8 @@ export interface PipelineInput {
   vault: Vault;
   sessionId: string;
   task: string;
+  /** Earlier turns of this panel session, oldest first. Sanitized here before sending. */
+  conversation?: ConversationTurn[];
   step: number;
   history: HistoryEntry[];
   /** Detections contributed by the vision layer (M4+). Already in CSS pixels. */
@@ -102,6 +106,33 @@ export interface PipelineOutput {
   timings: ReturnType<Stopwatch['finish']>;
 }
 
+/**
+ * Every detection for one screen, before fusion: the DOM layer's, and the vision
+ * layer's minus the boxes the DOM contradicts. Exported so the eval harness scores
+ * exactly this, rather than a list it assembles itself and lets drift.
+ */
+export function collectDetections(
+  snapshot: DomSnapshot,
+  vault: Vault,
+  visionDetections: Detection[],
+  coverOpaqueFrames = true,
+): Detection[] {
+  const dom: Detection[] = [
+    ...detectionsFromFields(snapshot.elements, vault),
+    ...detectionsFromText(snapshot, vault),
+    ...(coverOpaqueFrames ? detectionsFromOpaqueFrames(snapshot) : []),
+  ];
+  // A vague pixel box over a deadline the text layer read and found clean is dropped
+  // here, before fusion, so the image and the screen text agree (visible-text.ts); so
+  // is a detector box over text or a control the DOM read and found clean (D38).
+  const vision = dismissBoxesTheDomRead(
+    dismissFutureDateBoxes(visionDetections, snapshot.visibleText ?? []),
+    snapshot,
+    dom,
+  );
+  return [...dom, ...vision];
+}
+
 export function runPipeline(input: PipelineInput): PipelineOutput {
   const { snapshot, vault } = input;
   const watch = new Stopwatch();
@@ -110,14 +141,7 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
 
   /* 1. Detect ------------------------------------------------------- */
   watch.start('detect');
-  const raw: Detection[] = [
-    ...detectionsFromFields(snapshot.elements, vault),
-    ...detectionsFromText(snapshot, vault),
-    ...(input.coverOpaqueFrames === false ? [] : detectionsFromOpaqueFrames(snapshot)),
-    // A vague pixel box over a deadline the text layer read and found clean is dropped
-    // here, before fusion, so the image and the screen text agree (visible-text.ts).
-    ...dismissFutureDateBoxes(input.visionDetections ?? [], snapshot.visibleText ?? []),
-  ];
+  const raw = collectDetections(snapshot, vault, input.visionDetections ?? [], input.coverOpaqueFrames !== false);
   watch.end('detect');
 
   /* 2. Fuse --------------------------------------------------------- */
@@ -186,12 +210,25 @@ export function runPipeline(input: PipelineInput): PipelineOutput {
   const request: StepRequest = {
     session_id: input.sessionId,
     task: sanitizeText(input.task, vault).text,
+    // Earlier turns go through the same sanitizer as the task, and then through the
+    // egress guard with everything else: a value typed into an earlier task is a
+    // token here too.
+    ...(input.conversation?.length
+      ? {
+          conversation: input.conversation.slice(-4).map((turn) => ({
+            task: sanitizeText(turn.task, vault).text.slice(0, 500),
+            ...(turn.summary ? { summary: sanitizeText(turn.summary, vault).text.slice(0, 600) } : {}),
+          })),
+        }
+      : {}),
     step: input.step,
     disclosure_level: disclosureLevel,
     page,
     elements,
     redactions,
-    profile_keys: vault.profileKeys(),
+    // Remembered answers ("FATHER_NAME") are addressable like profile keys, and go on
+    // the wire the same way: the key only, never the value (D35).
+    profile_keys: [...vault.profileKeys(), ...vault.memoKeys()],
     // Sanitized now, not only when recorded: a literal the planner typed becomes a known
     // value once this page's fields are tokenized above, and history recorded before
     // that would otherwise carry it raw — which the egress guard then blocks.

@@ -134,6 +134,18 @@ class TestInboundGuard:
         assert response.status_code == 422
         assert response.json()["incidents"][0]["path"].endswith("value")
 
+    def test_rejects_raw_pii_in_an_earlier_turn(self, client):
+        # The conversation is a wire field like any other: a client bug that left a
+        # value in a previous task is refused, not forwarded to the model.
+        payload = sanitized_request(conversation=[{"task": f"my email is {FAKE['email']}", "summary": "Noted."}])
+        response = client.post("/v1/step", json=payload)
+        assert response.status_code == 422
+        assert "conversation" in response.json()["incidents"][0]["path"]
+
+    def test_accepts_a_tokenized_conversation(self, client):
+        payload = sanitized_request(conversation=[{"task": "Fill this form", "summary": "Filled ⟦PROFILE.EMAIL⟧."}])
+        assert client.post("/v1/step", json=payload).status_code == 200
+
     def test_rejects_raw_pii_in_the_task_or_title(self, client):
         payload = sanitized_request(task=f"email {FAKE['email']} for me")
         assert client.post("/v1/step", json=payload).status_code == 422

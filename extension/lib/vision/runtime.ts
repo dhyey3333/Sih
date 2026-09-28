@@ -43,6 +43,16 @@ export interface SessionInfo {
 let configured = false;
 
 /**
+ * Which GPU to ask for, on a machine with two. The check below asks with the same
+ * preference, so it inspects the adapter the session will actually get.
+ *
+ * A request, not a guarantee: Chrome on Windows ignores it and hands WebGPU the GPU
+ * Windows assigns the browser (Settings → System → Display → Graphics). On our RTX
+ * 3050 laptop that stayed the Intel iGPU either way.
+ */
+const POWER_PREFERENCE = 'high-performance' as const;
+
+/**
  * Where `public/` is served from.
  *
  * Inside the extension this is `browser.runtime.getURL`. The eval harness runs the
@@ -73,6 +83,7 @@ function configure(): void {
   ort.env.wasm.wasmPaths = assetUrl('/ort/ort-wasm-simd-threaded.mjs').replace(/[^/]+$/, '');
   ort.env.wasm.numThreads = 1;
   ort.env.logLevel = 'error';
+  ort.env.webgpu.powerPreference = POWER_PREFERENCE;
   configured = true;
 }
 
@@ -177,13 +188,13 @@ interface AdapterCheck {
 async function checkWebgpu(): Promise<AdapterCheck> {
   const gpu = (
     navigator as Navigator & {
-      gpu?: { requestAdapter(): Promise<AdapterLike | null> };
+      gpu?: { requestAdapter(options?: { powerPreference?: string }): Promise<AdapterLike | null> };
     }
   ).gpu;
   if (!gpu) return { usable: false, reason: 'WebGPU not available in this browser' };
 
   try {
-    const adapter = await gpu.requestAdapter();
+    const adapter = await gpu.requestAdapter({ powerPreference: POWER_PREFERENCE });
     if (!adapter) return { usable: false, reason: 'no WebGPU adapter' };
 
     const info = adapter.info ?? (await adapter.requestAdapterInfo?.()) ?? {};

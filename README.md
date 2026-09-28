@@ -59,8 +59,17 @@ A model can be wrong. The architecture is built so that being wrong is not enoug
 
 ## Where it stands
 
-Nine milestones, each measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
+Ten milestones, each measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
 [docs/PLAN.md](docs/PLAN.md) for the roadmap.
+
+**It talks, and the vault fills itself.** The side panel is a conversation: ask it to fill a
+form, ask what is on the page, ask a follow-up. You never fill in a settings form — the first
+time a form needs something the vault lacks, the agent asks you once and remembers it, and
+**Analyze** offers to save details you already typed into a page, and **Scan an ID card** reads
+your Aadhaar number and date of birth off a photo of the card — by OCR, on the laptop. "Remember on this device"
+keeps it all, encrypted (AES-GCM, non-extractable key), across browser restarts. Ask *"what is
+my email on this form?"* and the answer comes back as `⟦PROFILE.EMAIL⟧`, filled in on the device:
+the server answered a question about your data without seeing it.
 
 **The agent, end to end** — `uv run python -m eval.run_tasks` drives the packed extension's real
 side panel over **19 tasks with a checkable outcome**: forms with dropdowns, radio groups and date
@@ -72,7 +81,7 @@ leaking the user's Aadhaar number.
 | Rule-based planner (no model) | |
 |---|---|
 | Tasks completed | **19 / 19**, every one safe |
-| End-to-end time | median **2.5 s** per task, press-run to done |
+| End-to-end time | median **2.5 s** per task on an M1, **2.8–3.3 s** on a Windows laptop, press-run to done |
 | Checked on the wire | every request body searched for the profile's values, and every screenshot sent OCR'd: **0 found** in 42 of each |
 
 The wire check runs from outside the extension, so it tests what was sent rather than what the
@@ -87,13 +96,22 @@ when it went wrong it went wrong in the ways the gates exist for — on the inje
 retried a failing action until the loop guard stopped it.
 Every one was caught on the client, by a check that does not depend on the model being good.
 
+Qwen3-VL **4B** instruct on a laptop **RTX 3050**, over all nineteen: **13 completed, 19 safe**,
+~1.5–2 s a model step with the whole model on the GPU — fast enough to demonstrate live, and,
+like the 3B, worse than the rules at judgement calls.
+
 **Privacy filter**, scored automatically in a real browser against `data-pii` ground truth:
 
 | | Demo site | Holdout |
 |---|---|---|
-| PII detection precision | **1.000** | **1.000** |
-| PII detection recall | **0.978** over 45 items | **0.913** over 46 items |
+| PII detection precision | **1.000** | **0.956** |
+| PII detection recall | **0.978** over 45 items | **0.935** over 46 items |
 | Perception time | **2–27 ms per page**, no model loaded | |
+
+Measured on **real screenshots** of each page. Until D38 the vision layer was scored on a
+stand-in with no text in it, which hid its false positives (precision read 1.000 there, 0.880
+on the real screen) and meant the leak test could not find a leaked text value. The holdout
+column is no longer blind after the rule D38 added; the blind figure is the 0.784 below.
 
 The holdout is pages in `eval/holdout/` that are never demonstrated. Four were never looked at
 while a rule was written — a label-less SPA, a 2005 table-layout government portal, a bilingual
@@ -101,7 +119,7 @@ statement with no form controls, a support transcript where every value sits in 
 first blind run read **recall 0.784**, and the gap was the point: they found three real gaps,
 all now fixed and pinned by tests. Two further pages hold shadow-DOM and iframe traversal in
 place — before those, a form inside a web component or an `<iframe>` was invisible to the DOM
-layer entirely, which was a leak on two whole classes of modern site. Precision never moved off 1.000, on either set, against
+layer entirely, which was a leak on two whole classes of modern site. The rules hold against
 deliberate decoys: order numbers, a Luhn-invalid SKU, a PAN-shaped scheme code, a vehicle
 registration, a public helpline.
 
@@ -114,7 +132,7 @@ registration, a public helpline.
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
 | Handled with no request at all | **5 of 9 fields** (L0: the page declared the field, the vault had the value) |
-| Tests | 643 passing (471 extension, 152 server, 20 ml) |
+| Tests | 734 passing (551 extension, 163 server, 20 ml) |
 
 **On-device vision**, YuNet via onnxruntime-web:
 
@@ -132,8 +150,8 @@ uv run python -m eval.run_all
 
 It drives a real browser over the *shipped* modules and writes
 [`eval/results/RESULTS.md`](eval/results/RESULTS.md). The number that matters most is the
-**leak test: 0** — the redacted image is rendered exactly as the extension renders it, then read
-back with OCR, and no ground-truth value is recoverable from any page.
+**leak test: 0** — a real screenshot of each page is redacted exactly as the extension redacts
+it, then read back with OCR, and no ground-truth value is recoverable from any page.
 
 **Our own detector**, trained on data we generate ourselves:
 
@@ -148,7 +166,9 @@ Labels come from the page's own `data-pii` attributes, read back with
 `getBoundingClientRect()` — so training labels and eval ground truth are literally the same
 annotation and cannot drift apart. See [`ml/README.md`](ml/README.md).
 
-**Client resources.** Chrome **45.7 MB** packed, Firefox **32.2 MB**. Firefox is 30% smaller
+**Client resources.** Chrome **45.8 MB** packed, Firefox **32.3 MB**. At run time the extension
+process settles at ~330 MB and stays there — twelve Analyze passes, a flat 4.9 MB JavaScript
+heap, no leak. Firefox is 30% smaller
 because it is given the WASM-only ONNX runtime, which runs on every Firefox (WebGPU is still
 behind a flag on Linux), instead of the combined WebGPU + WASM binary. Neither number is what you pay per page — the
 models load lazily, and a screen the DOM layer handles alone costs 2–27 ms and zero megabytes.
@@ -156,11 +176,11 @@ models load lazily, and a screen the DOM layer handles alone costs 2–27 ms and
 **Not done yet, stated plainly.** The detector is trained entirely on pages our own generator
 drew. There is **no real-screenshot test set** — everything measured
 is the demo site, the holdout, the task pages, or synthetic pages, and hand-labelled screenshots
-of real portals are the honest next test. The only real model we have measured is a 3B one on an
-8 GB laptop, where a step takes 7 s with text and over a minute with the screenshot; a larger model
-on real hardware is three environment variables away and unmeasured. The detector's vague
-"personal text" class fires on some dates; a future date the text layer read cleanly is now let
-through (it is nobody's date of birth), but a past one keeps its box. Names
+of real portals are the honest next test. The real models we have measured are small ones on
+laptops — a 3B on an M1 and a 4B on an RTX 3050 — and both are worse than the rules at judgement
+calls; a larger hosted model is three environment variables away and unmeasured. The detector's
+vague "personal text" class is dropped where the DOM read the text beneath it and found it clean
+(D38), which costs a name in running prose it used to box by chance. Names
 belonging to someone other than the user are not detected by the text layer, by choice — there is
 no NER model. And the holdout's 0.784 is the only truly blind number it will ever produce;
 everything after it was measured on pages that have now been looked at.
@@ -262,7 +282,7 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 |---|---|
 | `npm run dev` / `dev:firefox` | run the extension |
 | `npm run build` / `build:firefox` / `build:all` | production builds |
-| `npm test` | 471 unit tests |
+| `npm test` | 551 unit tests |
 | `npm run assets` | restage the ORT WASM binaries from node_modules |
 | `npm run compile` | typecheck |
 | `npm run build:domcheck` | standalone bundle for scoring a page |
