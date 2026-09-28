@@ -25,8 +25,8 @@ import {
   profileKeyForField,
   questionLabel,
 } from '../../lib/pii/memory';
-import { PROFILE_KEYS, TOKEN_PATTERN, Vault, type ProfileKey, type VaultBackup } from '../../lib/pii/vault';
-import { browserStores, forgetVault, openVault, sealVault } from '../../lib/pii/vault-store';
+import { TOKEN_PATTERN, Vault, type ProfileKey } from '../../lib/pii/vault';
+import { forgetBackup, isRemembered, loadBackup, persistBackup } from '../../lib/pii/vault-persist';
 import { VisionLayer } from '../../lib/vision';
 
 const vault = new Vault();
@@ -121,10 +121,8 @@ const ui = {
 
   profile: $('profile'),
   profileDemo: $<HTMLButtonElement>('profile-demo'),
-  vaultRemember: $<HTMLInputElement>('vault-remember'),
+  vaultState: $('vault-state'),
   vaultForget: $<HTMLButtonElement>('vault-forget'),
-  memosSection: $('memos-section'),
-  memos: $('memos'),
 
   learn: $('learn'),
   learnTitle: $('learn-title'),
@@ -520,14 +518,12 @@ function lightBox(id: string | null): void {
  * Profile
  * ------------------------------------------------------------------ */
 
-const PROFILE_STORAGE_KEY = 'privagent.profile';
-/** Whether the user chose to keep the vault on this device. A preference, not PII. */
-const REMEMBER_STORAGE_KEY = 'privagent.vault.remember';
 const SERVER_STORAGE_KEY = 'privagent.serverUrl';
 /** A credential: kept in session storage (memory, wiped on close), like the profile. */
 const TOKEN_STORAGE_KEY = 'privagent.serverToken';
 
-const vaultStores = browserStores();
+/** Whether the user has agreed to keep what PrivAgent learned on this device. */
+let remembered = false;
 
 /** The × on a remembered answer. Built with DOM calls: no `innerHTML` anywhere in the panel. */
 function forgetIcon(): SVGSVGElement {
@@ -545,112 +541,97 @@ function forgetIcon(): SVGSVGElement {
   return svg;
 }
 
-function buildProfileForm(): void {
+/** How the profile's keys read in the panel. */
+const KEY_LABEL: Record<ProfileKey, string> = {
+  FULL_NAME: 'Name',
+  EMAIL: 'Email',
+  PHONE: 'Mobile',
+  DOB: 'Date of birth',
+  ADDRESS: 'Address',
+  PINCODE: 'PIN code',
+  AADHAAR: 'Aadhaar',
+  PAN: 'PAN',
+  PASSPORT: 'Passport',
+  UPI: 'UPI ID',
+};
+
+/**
+ * What PrivAgent knows about the user: read-only, masked, each item forgettable.
+ * Nothing here is typed in by hand (D40) — it is learned from forms the user sends,
+ * answers they give the agent, a card they scan — so this is for seeing and
+ * forgetting, not for filling in.
+ */
+function buildKnownList(): void {
+  const rows = [
+    ...vault.profileEntries().map(([key, value]) => ({
+      label: KEY_LABEL[key],
+      value,
+      forget: () => vault.setProfile(key, ''),
+    })),
+    ...vault.memoEntries().map((memo) => ({
+      label: memo.label.replace(/[*:]+\s*$/, '').trim(),
+      value: memo.value ?? '',
+      forget: () => vault.forgetMemo(memo.label),
+    })),
+  ];
+
   ui.profile.replaceChildren();
-  for (const key of PROFILE_KEYS) {
-    const label = document.createElement('label');
-    const span = document.createElement('span');
-    span.textContent = key.replace(/_/g, ' ').toLowerCase();
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = vault.getProfile(key) ?? '';
-    input.autocomplete = 'off';
-    input.addEventListener('change', () => {
-      vault.setProfile(key, input.value);
-      void saveVault();
-      updateVaultStat();
-    });
-
-    label.append(span, input);
-    ui.profile.append(label);
-  }
-  buildMemoList();
-}
-
-/** Answers learned beyond the profile's own keys, each one forgettable. */
-function buildMemoList(): void {
-  const memos = vault.memoEntries();
-  ui.memosSection.hidden = memos.length === 0;
-  ui.memos.replaceChildren(
-    ...memos.map((memo) => {
+  if (rows.length === 0) {
+    ui.profile.append(
+      Object.assign(document.createElement('p'), {
+        className: 'fineprint',
+        textContent:
+          'Nothing yet. Fill in a form yourself and PrivAgent offers to remember it; answer a question it asks and it will not ask again.',
+      }),
+    );
+  } else {
+    const list = Object.assign(document.createElement('ul'), { className: 'list list--memos' });
+    for (const row of rows) {
       const li = document.createElement('li');
-      const label = Object.assign(document.createElement('span'), { className: 'memo__label', textContent: memo.label });
-      label.title = memo.label;
-      const value = Object.assign(document.createElement('span'), {
-        className: 'memo__value',
-        textContent: maskValue(memo.value ?? ''),
-      });
+      const label = Object.assign(document.createElement('span'), { className: 'memo__label', textContent: row.label });
+      label.title = row.label;
+      const value = Object.assign(document.createElement('span'), { className: 'memo__value', textContent: maskValue(row.value) });
       const forget = Object.assign(document.createElement('button'), { className: 'memo__forget' });
       forget.append(forgetIcon());
-      forget.setAttribute('aria-label', `Forget ${memo.label}`);
-      forget.title = 'Forget this answer';
+      forget.setAttribute('aria-label', `Forget ${row.label}`);
+      forget.title = 'Forget this';
       forget.addEventListener('click', () => {
-        vault.forgetMemo(memo.label);
-        buildMemoList();
+        row.forget();
+        buildKnownList();
         updateVaultStat();
-        void saveVault();
-        log(`Forgot your answer for “${memo.label}”.`);
+        void saveVault(false);
+        log(`Forgot your ${row.label.toLowerCase()}.`);
       });
       li.append(label, value, forget);
-      return li;
-    }),
-  );
+      list.append(li);
+    }
+    ui.profile.append(list);
+  }
+  ui.vaultState.textContent = rows.length === 0
+    ? ''
+    : remembered
+      ? 'Kept on this device, encrypted. The server only ever sees keys like ⟦PROFILE.EMAIL⟧.'
+      : 'Kept until the browser closes. The server only ever sees keys like ⟦PROFILE.EMAIL⟧.';
 }
 
 /**
- * Two copies, for two lifetimes. `storage.session` is memory only and survives the
- * panel closing, not the browser. When the user has turned on Remember, the same
- * data is also sealed to disk with AES-GCM under a non-extractable key
- * (lib/pii/vault-store.ts, D36). Plaintext is never written to disk.
+ * Save the vault (lib/pii/vault-persist.ts). `remember` is the user's agreement to
+ * keep it on the device — given by any act of learning: a yes on a page's prompt, a
+ * save, an answer to the agent. Forgetting one item keeps the agreement as it is.
  */
-async function saveVault(): Promise<void> {
-  const backup = vault.backup();
+async function saveVault(remember = true): Promise<void> {
   try {
-    await browser.storage?.session?.set({ [PROFILE_STORAGE_KEY]: backup });
-  } catch {
-    /* unavailable: the vault simply stays in memory */
-  }
-  if (!ui.vaultRemember.checked) return;
-  try {
-    await sealVault(backup, vaultStores);
+    await persistBackup(vault.backup(), remember);
+    remembered = await isRemembered();
   } catch (error) {
-    log(`Could not save the vault on this device: ${error instanceof Error ? error.message : error}`, 'err');
+    log(`Could not save on this device: ${error instanceof Error ? error.message : error}`, 'err');
   }
 }
 
 async function restoreVault(): Promise<void> {
-  try {
-    const stored = await browser.storage?.local?.get(REMEMBER_STORAGE_KEY);
-    ui.vaultRemember.checked = stored?.[REMEMBER_STORAGE_KEY] === true;
-  } catch {
-    /* not remembered */
-  }
-  try {
-    // This browser session's copy first: it is the most recent.
-    const session = await browser.storage?.session?.get(PROFILE_STORAGE_KEY);
-    const held = session?.[PROFILE_STORAGE_KEY] as VaultBackup | Record<string, string> | undefined;
-    if (held && (held as VaultBackup).v === 1) {
-      vault.restore(held as VaultBackup);
-      return;
-    }
-    if (held) {
-      // A profile saved by an earlier version, as a plain key → value record.
-      for (const key of PROFILE_KEYS) {
-        const value = (held as Record<string, string>)[key];
-        if (value) vault.setProfile(key, value);
-      }
-      return;
-    }
-  } catch {
-    /* nothing in this session */
-  }
-  if (!ui.vaultRemember.checked) return;
-  const saved = await openVault(vaultStores);
-  if (saved) {
-    vault.restore(saved);
-    log('Opened your vault, saved on this device.');
-  }
+  const backup = await loadBackup().catch(() => undefined);
+  if (backup) vault.restore(backup);
+  remembered = await isRemembered();
 }
 
 /* ---- Learning from the page ---------------------------------------- */
@@ -770,10 +751,9 @@ function saveSuggestions(): void {
   for (const s of chosen) vault.learn(s.label, s.value, s.type);
   suggestions = [];
   ui.learn.hidden = true;
-  buildProfileForm();
   updateVaultStat();
-  void saveVault();
-  log(`Saved ${chosen.length} detail${chosen.length === 1 ? '' : 's'} from this page to your vault.`);
+  void saveVault().then(buildKnownList);
+  log(`Remembered ${chosen.length} detail${chosen.length === 1 ? '' : 's'}, on this device.`);
 }
 
 /** The server URL is not PII, so ordinary local storage is fine for it. */
@@ -1150,12 +1130,11 @@ async function run(): Promise<void> {
     onLearned: (label, profileKey) => {
       log(
         profileKey
-          ? `Learned your ${profileKey.replace(/_/g, ' ').toLowerCase()} — saved to your vault.`
+          ? `Learned your ${profileKey.replace(/_/g, ' ').toLowerCase()} — it will be filled in for you from now on.`
           : `Learned your answer for “${label}” — it will be filled next time without asking.`,
       );
-      buildProfileForm();
       updateVaultStat();
-      void saveVault();
+      void saveVault().then(buildKnownList);
     },
   });
 
@@ -1278,8 +1257,7 @@ ui.profileDemo.addEventListener('click', () => {
   for (const [key, value] of Object.entries(DEMO_PROFILE)) {
     vault.setProfile(key as ProfileKey, value);
   }
-  buildProfileForm();
-  void saveVault();
+  void saveVault().then(buildKnownList);
   updateVaultStat();
   log('Loaded the demo profile (fake data).');
 });
@@ -1294,39 +1272,34 @@ ui.learnDismiss.addEventListener('click', () => {
   ui.learn.hidden = true;
 });
 
-ui.vaultRemember.addEventListener('change', async () => {
-  const on = ui.vaultRemember.checked;
-  try {
-    await browser.storage?.local?.set({ [REMEMBER_STORAGE_KEY]: on });
-    if (on) {
-      await sealVault(vault.backup(), vaultStores);
-      log('Your vault is now saved on this device, encrypted. It stays after the browser closes.');
-    } else {
-      await forgetVault(vaultStores);
-      log('Removed the saved copy from this device. This browser session keeps it until you close it.');
-    }
-  } catch (error) {
-    ui.vaultRemember.checked = !on;
-    log(`Could not change where the vault is kept: ${error instanceof Error ? error.message : error}`, 'err');
-  }
-});
-
 ui.vaultForget.addEventListener('click', async () => {
   const proceed = await askConfirmation(
-    'Forget your profile and every answer the agent has learned — here and on this device?',
+    'Forget everything PrivAgent knows about you — here and on this device?',
   );
   setStatus('idle', 'Ready');
   if (!proceed) return;
   vault.clearAll();
   try {
-    await forgetVault(vaultStores);
-    await browser.storage?.session?.remove(PROFILE_STORAGE_KEY);
+    await forgetBackup();
   } catch {
     /* nothing was saved */
   }
-  buildProfileForm();
+  remembered = false;
+  buildKnownList();
   updateVaultStat();
-  log('Vault emptied. Nothing of yours is kept on this device.');
+  log('Forgotten. Nothing of yours is kept on this device.');
+});
+
+// A yes on a page's "Remember what you typed?" is saved by the background (D40);
+// pick it up here so the list and the next agent step both know it.
+browser.runtime.onMessage.addListener((message: { kind?: string }) => {
+  if (message?.kind !== 'vault-changed') return;
+  void (async () => {
+    await restoreVault();
+    buildKnownList();
+    updateVaultStat();
+    log('Remembered what you typed on the page. It will be filled in for you next time.');
+  })();
 });
 
 ui.visionToggle.addEventListener('change', () => {
@@ -1359,7 +1332,7 @@ window.addEventListener('pagehide', () => {
 
 void (async () => {
   await Promise.all([restoreVault(), restoreServerUrl()]);
-  buildProfileForm();
+  buildKnownList();
   updateVaultStat();
   renderLedger();
   setMode('compare');

@@ -120,7 +120,8 @@ export function toRect(domRect: DOMRect, dx = 0, dy = 0): Rect {
   };
 }
 
-function descriptorFor(el: Element, label: string): FieldDescriptor {
+/** Exported for the content script's learn-on-submit, which classifies fields the same way. */
+export function descriptorFor(el: Element, label: string): FieldDescriptor {
   const input = el as HTMLInputElement;
   return {
     tag: el.tagName,

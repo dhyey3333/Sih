@@ -322,29 +322,21 @@
         <div class="group">
           <details class="disclosure">
             <summary>
-              <span class="disclosure__label">My vault</span>
+              <span class="disclosure__label">What PrivAgent knows about you</span>
               <span class="badge badge--quiet" id="stat-vault">0</span>
               <svg class="chev" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path d="m4.2 2.4 3.6 3.6-3.6 3.6" stroke="currentColor" stroke-width="1.6"
                       stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </summary>
+            <!--
+              Nothing here is typed in by hand (D40). PrivAgent learns from forms the user
+              sends ("Remember what you typed?"), answers they give the agent, and a card
+              they scan — and fills from it. This is for seeing and forgetting.
+            -->
             <div class="disclosure__body">
-              <p class="fineprint">
-                Fills itself: every answer you give the agent is learned, so it asks only
-                once. Kept in memory and dropped when the browser closes, unless you turn on
-                Remember. The server only ever learns which keys exist, never their values.
-              </p>
-              <label class="toggle">
-                <input type="checkbox" id="vault-remember" />
-                <span class="toggle__track"><span class="toggle__thumb"></span></span>
-                <span class="toggle__label">Remember on this device (encrypted)</span>
-              </label>
               <div id="profile" class="profile"></div>
-              <div class="memos" id="memos-section" hidden>
-                <span class="memos__title">Learned from your answers</span>
-                <ul id="memos" class="list list--memos"></ul>
-              </div>
+              <p class="fineprint" id="vault-state"></p>
               <!-- A label, so the whole button opens the file picker. The image is read
                    by OCR here and discarded; only what the validators recognise is kept,
                    and only after the user saves it. -->

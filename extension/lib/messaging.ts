@@ -7,6 +7,7 @@
  * request/response so callers can await a result instead of wiring up listeners.
  */
 
+import type { LearnItem } from './pii/offer';
 import type { DomSnapshot, PiiType, StageTimings } from './protocol';
 
 export interface ResolvedAction {
@@ -47,12 +48,30 @@ export interface PerceiveResult {
   timings: StageTimings;
 }
 
-/** Side panel → background. */
+/** Side panel → background, and content script → background for learning on submit (D40). */
 export type BackgroundRequest =
   | { kind: 'perceive'; tabId?: number; knownValues?: Array<{ value: string; type: PiiType }> }
   | { kind: 'execute'; tabId: number; action: ResolvedAction }
   | { kind: 'activeTab' }
-  | { kind: 'navigate'; tabId: number; url: string };
+  | { kind: 'navigate'; tabId: number; url: string }
+  /** The user submitted a form they typed into. Held until they answer the prompt. */
+  | { kind: 'learn-offer'; items: LearnItem[] }
+  /** A page just loaded: is there an offer from the page before it (a submit that navigated)? */
+  | { kind: 'learn-pending' }
+  | { kind: 'learn-accept'; id: string }
+  | { kind: 'learn-dismiss'; id: string };
+
+/** An offer the page should show a prompt for. Names only — the values stay in the background. */
+export interface LearnOffer {
+  id: string;
+  summary: string;
+  count: number;
+}
+
+/** Background → side panel, when the vault changed without it: a yes on a page's prompt. */
+export interface VaultChangedNotice {
+  kind: 'vault-changed';
+}
 
 /** Background → content script. */
 export type ContentRequest =

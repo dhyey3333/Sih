@@ -16,6 +16,35 @@ Status board. Updated at the end of every milestone (CLAUDE.md).
 | M9 The agent, measured | ✅ 19-task end-to-end benchmark with a wire-level leak check, a real open-weights model, prompt-injection gate, Hindi, screen text, real-form coverage, and the redaction bug the model found |
 | M10 The vault fills itself | ✅ ask once and remember, save from the page, encrypted "remember on this device"; OCR fixed in the packed extension; the Windows GPU laptop measured |
 | M11 Honest numbers, and a conversation | ✅ eval on real screenshots (precision was 0.880, now 1.000), detector yields to the DOM, chat thread with follow-ups, field answers by token, memory and backend measured, Edge checked |
+| M12 No settings form | ✅ learn on submit with one prompt ("Remember what you typed?"), manual vault removed, planted-value attack closed |
+
+---
+
+## 2026-09-29 — M12: no settings form
+
+The user did not want to type their details into the extension at all. Now they never
+do (D40): submit a form you typed yourself and the page asks once, "Remember what you
+typed?" — field names only — and a yes is all it takes. The manual vault form and the
+Remember switch are gone; the panel lists what PrivAgent knows, masked, with a × per item.
+
+- `lib/dom/learn-on-submit.ts` reads only fields a *trusted* keystroke touched, offers a
+  value only if it is still what the user typed, and draws the prompt in a closed shadow
+  root whose buttons ignore untrusted clicks.
+- The background holds the offer in session storage for two minutes, per tab, so a form
+  that submits by navigating is prompted on the next page.
+- `lib/pii/offer.ts` decides what is worth offering (never passwords, OTPs, cards, search
+  boxes or prose) and what is new to the vault; `lib/pii/vault-persist.ts` is the one save
+  path for the panel and the background.
+
+**The bug the test found.** A text field's blur fires a trusted `change` carrying whatever
+the field holds — so a value the page wrote after the user typed was recorded as theirs.
+Text fields now count keystrokes only.
+
+Checked in the packed extension, 9 of 9: prompt shown; offer held in session storage;
+Remember sealed it with no readable value on disk; a fresh form with no demo profile
+filled by the agent 8/8; no prompt for an agent-filled form; a planted value not offered.
+
+557 extension tests, 163 server tests, 19/19 tasks safe, Firefox lint 0 errors.
 
 ---
 

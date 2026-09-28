@@ -28,7 +28,7 @@ On the Windows laptop, `scripts\start.ps1` does all three in one command, and
 Then, once:
 
 - Open the side panel. **Leave the vault empty** — act 1 fills it on stage. (If you
-  would rather not, expand **My vault** and press **Load demo profile**.)
+  would rather not, expand **What PrivAgent knows about you** and press **Load demo profile**.)
 - Open `http://localhost:5173/apply.html` and press **Analyze** once. This pays the
   one-time model load (~2 s) so the live demo is warm; the form is empty, so there
   is nothing to offer the vault and it stays empty.
@@ -93,10 +93,11 @@ form, and offers them — masked — for the vault.
 > never to a server.
 
 Press **Save to vault**, then **Analyze** again. The tokens change from `⟦EMAIL_1⟧` to
-`⟦PROFILE.EMAIL⟧`: they are *yours* now, usable on any site. Open **My vault** and turn
-on **Remember on this device** — encrypted, so it survives a browser restart.
+`⟦PROFILE.EMAIL⟧`: they are *yours* now, usable on any site — kept on this laptop,
+encrypted, so they survive a browser restart. Open **What PrivAgent knows about you**:
+every item is listed, masked, with a × to forget it.
 
-(Optional, 20 seconds: expand **My vault** → **Scan an ID card** → pick
+(Optional, 20 seconds: expand **What PrivAgent knows about you** → **Scan an ID card** → pick
 `demo-site/assets/id-card.svg`. The Aadhaar number and date of birth are read off the
 *image*, on this laptop, and offered the same way. The image is not kept.)
 
@@ -125,6 +126,14 @@ guard exists. It does not trust any of the layers above it.
 ---
 
 ## Act 2 — "It acts" (90 seconds)
+
+*(Optional opener, 30 seconds — how it learns you without a settings form. Start from
+an empty memory: **Forget everything**. Open `apply.html` and type your name, email and
+mobile into it yourself — fake ones — and press **Save draft**. The page shows
+**"Remember what you typed?"**: field names, never values. Press **Remember**. Reload.)*
+
+> I typed that once, like anyone would. It asked, I said yes, and it is on this laptop
+> now — encrypted, and listed in the panel with a × beside each item.
 
 Open `apply.html` — the same form, empty.
 
@@ -300,9 +309,9 @@ asking. Analyze offers to save details you already typed into a page. Nothing le
 leaves the laptop: the server sees `⟦PROFILE.FATHER_NAME⟧`, never the name.
 
 **"Where is the vault kept? What if the laptop is stolen?"**
-In memory by default, gone when the browser closes. "Remember on this device" saves it
-encrypted — AES-GCM with a key the browser marks non-extractable, so no script can copy
-it off the machine — and the plaintext never touches the disk. Someone who can run code
+Nothing is kept until you say yes to it. Then it is saved encrypted — AES-GCM with a
+key the browser marks non-extractable, so no script can copy it off the machine — and
+the plaintext never touches the disk. Someone who can run code
 as this extension, on this user's browser profile, can still decrypt it, exactly as they
 could the browser's own saved addresses; we say that in D36 rather than overclaim.
 

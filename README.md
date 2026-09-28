@@ -62,12 +62,14 @@ A model can be wrong. The architecture is built so that being wrong is not enoug
 Ten milestones, each measured. See [docs/PROGRESS.md](docs/PROGRESS.md) for the full numbers and
 [docs/PLAN.md](docs/PLAN.md) for the roadmap.
 
-**It talks, and the vault fills itself.** The side panel is a conversation: ask it to fill a
-form, ask what is on the page, ask a follow-up. You never fill in a settings form — the first
-time a form needs something the vault lacks, the agent asks you once and remembers it, and
-**Analyze** offers to save details you already typed into a page, and **Scan an ID card** reads
-your Aadhaar number and date of birth off a photo of the card — by OCR, on the laptop. "Remember on this device"
-keeps it all, encrypted (AES-GCM, non-extractable key), across browser restarts. Ask *"what is
+**It talks, and it learns you — no settings form.** The side panel is a conversation: ask it to
+fill a form, ask what is on the page, ask a follow-up. There is nothing to type into the extension.
+Fill in a form yourself once and press Submit: the page shows **"Remember what you typed?"** — one
+tap, and from then on the agent fills those details in for you on any site. If a form needs
+something it has never seen, it asks once and never again; **Scan an ID card** reads your Aadhaar
+number and date of birth off a photo of the card, by OCR, on the laptop. What it learns is kept on
+the laptop, encrypted (AES-GCM, non-extractable key), and the side panel lists it with a × to
+forget any item. Ask *"what is
 my email on this form?"* and the answer comes back as `⟦PROFILE.EMAIL⟧`, filled in on the device:
 the server answered a question about your data without seeing it.
 
@@ -132,7 +134,7 @@ registration, a public helpline.
 | Network + server | 52 ms + 4.8 ms |
 | Payload | 42 KB, 1024×1280 |
 | Handled with no request at all | **5 of 9 fields** (L0: the page declared the field, the vault had the value) |
-| Tests | 734 passing (551 extension, 163 server, 20 ml) |
+| Tests | 740 passing (557 extension, 163 server, 20 ml) |
 
 **On-device vision**, YuNet via onnxruntime-web:
 
@@ -282,7 +284,7 @@ measurement behind it:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 |---|---|
 | `npm run dev` / `dev:firefox` | run the extension |
 | `npm run build` / `build:firefox` / `build:all` | production builds |
-| `npm test` | 551 unit tests |
+| `npm test` | 557 unit tests |
 | `npm run assets` | restage the ORT WASM binaries from node_modules |
 | `npm run compile` | typecheck |
 | `npm run build:domcheck` | standalone bundle for scoring a page |

@@ -10,8 +10,18 @@
  */
 
 import { formatForInput } from '../lib/dom/input-format';
+import { installLearnOnSubmit } from '../lib/dom/learn-on-submit';
 import { StableIds, buildSnapshot } from '../lib/dom/snapshot';
-import { fail, ok, type ActionResult, type ContentRequest, type ResolvedAction } from '../lib/messaging';
+import {
+  fail,
+  ok,
+  unwrap,
+  type ActionResult,
+  type BackgroundRequest,
+  type ContentRequest,
+  type LearnOffer,
+  type ResolvedAction,
+} from '../lib/messaging';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -22,6 +32,24 @@ export default defineContentScript({
     const registry = new Map<number, Element>();
     /** One per document: an element keeps its id while it exists (lib/dom/snapshot.ts). */
     const stableIds = new StableIds();
+
+    // Learning on submit (D40): a form the user typed into and sent is offered for the
+    // vault with one prompt. The values go to the background, never anywhere else.
+    const learning = installLearnOnSubmit({
+      offer: async (items) =>
+        unwrap<LearnOffer | null>(await browser.runtime.sendMessage({ kind: 'learn-offer', items } satisfies BackgroundRequest)),
+      answer: async (offer, yes) => {
+        await browser.runtime.sendMessage(
+          (yes ? { kind: 'learn-accept', id: offer.id } : { kind: 'learn-dismiss', id: offer.id }) satisfies BackgroundRequest,
+        );
+      },
+    });
+    // A form that submitted by navigating took its page with it: the offer waits for this one.
+    browser.runtime
+      .sendMessage({ kind: 'learn-pending' } satisfies BackgroundRequest)
+      .then((response) => unwrap<LearnOffer | null>(response))
+      .then((pending) => pending && learning.showPending(pending))
+      .catch(() => {});
 
     browser.runtime.onMessage.addListener((message: ContentRequest) => {
       try {

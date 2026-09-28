@@ -792,3 +792,33 @@ meant nothing to a model. Without the field answer, the same question was matche
 against screen *text* and came back as the label line, "Email address * Mobile
 number *". The summaries sent back are the planner's own words — tokens, never values
 the panel resolved — so a conversation adds context and no data.
+
+## D40 — No settings form: learn on submit, with one prompt
+
+**Decision.** The manual vault is gone from the panel. When the user submits a form they
+typed into themselves, the page shows one prompt — "Remember what you typed?", naming
+fields, never values — and a yes files each value as an answer to the agent is filed
+(D35). Values wait for the answer in the background's session storage (memory only, not
+readable by content scripts) for two minutes; a form that submits by navigating gets its
+prompt on the next page in the same tab. The first yes, save or answer is also the
+agreement to keep what is learned on the device (D36), so there is no Remember switch.
+The panel keeps a read-only list — masked, a × per item — and "Forget everything".
+
+**Why.** The user did not want to type their details into an extension, and should not
+have to: they already type them into forms. Chrome's "Save address?" is the precedent
+judges know. It is a prompt and not silent capture because silent capture of what a
+person types on every site is a keylogger by another name, it would file someone else's
+details (a form filled for a parent) as the user's own, and consent is what the DPDP
+mapping in docs/SUBMISSION.md rests on.
+
+**What stops a page from abusing it.** Only fields that received a trusted keystroke or
+choice are read — the agent types with synthetic events, so an agent-filled form is never
+offered back. A text field counts on a keystroke only: the `change` a browser fires on
+blur is trusted but carries whatever the field holds by then, and our own test showed it
+laundering a value the page wrote after the user typed. A value is offered only if it is
+still what the user typed. The prompt lives in a closed shadow root and ignores untrusted
+clicks. Passwords, OTPs, card numbers and CVVs are never read.
+
+Checked in the packed extension: typed by hand → prompt → Remember → sealed, no readable
+value on disk; a fresh copy of the form with no demo profile was filled by the agent, 8
+of 8 fields; an agent-filled form raised no prompt; a planted value was not offered.

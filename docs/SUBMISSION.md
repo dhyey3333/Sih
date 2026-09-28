@@ -26,9 +26,10 @@ millisecond before typing it.
 
 The user talks to it like a chat assistant — "fill this form and stop before
 submitting", "what is my application status?", "now the next page" — and never fills
-in a settings form: the vault learns each detail the first time the agent has to ask
-for it, from a form the user filled in by hand, or from a photo of their ID card read
-by OCR on the laptop — and keeps it on the device (D35).
+in a settings form. When the user submits a form they typed themselves, the page asks
+once, "Remember what you typed?" (D40); it also learns each detail the first time the
+agent has to ask for it, and from a photo of their ID card read by OCR on the laptop.
+All of it is kept on the device (D35) — the server sees ⟦PROFILE.AADHAAR⟧, never the number.
 
 ## Why this shape of problem matters to a space organisation
 
@@ -316,7 +317,7 @@ under the DPDP Rules, 2025.
 | **§6(1)** — processing limited to the personal data *necessary* for the purpose | The server receives structure and tokens, never values. L0 steps send nothing; L1 sends no image; a banking or ID page is never sent pixels. |
 | **§8(5)** — reasonable security safeguards; the Rules name *obfuscation or masking* | Masking at source: solid-fill redaction and tokenization on the device, then an egress guard that re-scans every outbound payload and blocks on any hit. The server scans again on arrival and refuses rather than forwards. |
 | **§8(6)** — detect and report a breach | Every block is logged by incident *type* and JSON path, never value, on both sides — what the Rules call logs that let a breach be reconstructed. |
-| **§8(7)** — erase once the purpose is served | By default the vault lives in session storage — memory, gone when the browser closes. "Remember on this device" is the user's opt-in: AES-GCM-256 under a non-extractable key, plaintext never on disk, and "Forget everything" deletes key and ciphertext together (D36). Values seen on pages are never saved. Reset drops every value captured from pages at once. The server persists nothing, and holds only tokens while it works. |
+| **§8(7)** — erase once the purpose is served | Nothing is kept until the user agrees — a tap on "Remember what you typed?", or an answer given to the agent. Then it is sealed on the device with AES-GCM-256 under a non-extractable key, plaintext never on disk; each item can be forgotten from the panel, and "Forget everything" deletes key and ciphertext together (D36, D40). Values seen on pages are never saved. Reset drops every value captured from pages at once. The server persists nothing, and holds only tokens while it works. |
 | Consent for what is done in the user's name | Submit, pay, send, delete — in English and Hindi — and every declaration checkbox need an explicit tap. A real value goes into a field of its own kind or the user is asked (gate 4). |
 
 What the server never receives, it cannot breach: the safeguard is architectural, and
@@ -338,7 +339,7 @@ from outside the extension.
 
 | Command | What it checks |
 |---|---|
-| `cd extension && npm test` | 551 unit tests — validators, heuristics, fusion, agent gates, the learning vault and its encryption, panel markup |
+| `cd extension && npm test` | 557 unit tests — validators, heuristics, fusion, agent gates, the learning vault and its encryption, panel markup |
 | `cd server && uv run pytest` | 163 tests, including the VLM path over a real socket and the live view |
 | `cd ml && uv run --group dev pytest` | 20 tests over the data engine |
 | `uv run python -m eval.run_all` | Every detection and redaction number, in a real browser |
