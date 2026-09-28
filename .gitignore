@@ -68,3 +68,7 @@ ml/runs/
 ml/artifacts/
 ml/yolo*.pt
 runs/
+
+# Generated demo video (scripts/make_video.py)
+PrivAgent-demo.mp4
+PrivAgent-demo.srt

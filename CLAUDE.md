@@ -48,6 +48,7 @@ A Chrome + Firefox extension that reads the current tab with small on-device vis
 - Demo site: `python3 -m http.server 5173 --directory demo-site`
 - ML (from `ml/`): `uv sync && uv run playwright install chromium`, `uv run python -m synth.generate --out data/synth --per-recipe 120`, `uv run python -m synth.preview --data data/synth --split train`, `uv sync --group train && uv run python train.py --data data/synth/data.yaml --epochs 80`, `uv run --group dev pytest`
 - Eval (from the repo root): `uv sync && uv run python -m eval.run_all` — needs `extension && npm run build:domcheck` first; writes `eval/results/RESULTS.md`; scores real screenshots by default, `--composite` for the old text-free capture, `--headed` for the real GPU adapter. `uv run python -m eval.smoke_extension` boots the packed Chrome build in a real browser (needs `npm run build` first); `--browser <path to msedge.exe or brave.exe>` for another Chromium browser. `uv run python -m eval.run_tasks` is the end-to-end task benchmark (needs `npm run build`; writes `eval/results/tasks-*.json`); add `--vlm ollama --strategy rules-first --image auto` for the local model, `--only <task-id>…` for a subset.
+- Demo video (Windows, from the repo root, after `npm run build`): `uv run --with imageio-ffmpeg python scripts/make_video.py` — records every scene of docs/VIDEO.md in the packed extension, narrates it, writes `PrivAgent-demo.mp4` + `.srt`
 - Task-page previews: `python3 -m http.server 5188 --directory eval/tasks/pages` (also `task-pages` in `.claude/launch.json`)
 
 ## Gotchas

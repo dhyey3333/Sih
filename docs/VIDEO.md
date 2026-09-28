@@ -1,5 +1,17 @@
 # Demo video
 
+**A ready-made cut exists.** `scripts/make_video.py` records the real extension doing
+every scene below by itself, narrates it with Windows' built-in Indian-English voice
+("Microsoft Ravi"), and burns in subtitles: a 3½-minute 1080p MP4 with no human at the
+keyboard. Use it as the backup video for judges; record your own voice over the same
+scenes for YouTube if you can — a real voice sounds far more convincing.
+
+```powershell
+uv run --with imageio-ffmpeg python scripts/make_video.py
+```
+
+What follows is the same film, written for a human to record.
+
 A 3 min 50 s video for YouTube and the SIH judges. Every claim in the narration is one
 the project measures and `docs/SUBMISSION.md` backs — nothing here is aspirational.
 Subtitles: [`video/captions.srt`](video/captions.srt).
@@ -125,14 +137,16 @@ list, masked.
 **Screen:** reload `apply.html` — empty again. Put the `localhost:8000/view` tab beside it
 (or cut to it). Type in the panel: *"fill this form with my profile and stop before
 submitting"* → press →. Let the fields fill. The conversation line reads
-**Done · 8 filled · 5 on this device** (or close to it — it counts what it did). Cut to the server view: redacted screenshots and
+**Done · 8 filled · 8 on this device** — every field it learned in scene 3 is filled
+without asking the server; the counter under the metrics shows one request (the planner
+confirming nothing is left). Cut to the server view: redacted screenshots and
 tokens only.
 
-> Now I just ask. The agent fills the form. Five of these fields never even needed the
-> server — the page said what they were, and the laptop filled them. For the rest, the
-> server's AI got this: a blacked-out screenshot and tokens. It answers "type PROFILE dot
-> EMAIL into field five" — and only the laptop knows what that is. It stops before
-> Submit, because I told it to. Pressing Submit, paying, deleting — the client always
+> Now I just ask. The agent fills the form — every field right here on the laptop,
+> because it recognised the questions it had learned. The server was asked just once,
+> whether anything was left, and all it got was this: a blacked-out screenshot and
+> tokens like PROFILE dot EMAIL. Only the laptop knows what those stand for. It stops
+> before Submit, because I told it to. Pressing Submit, paying, deleting — the client always
 > asks a human first.
 
 **Caption:** *The server sees ⟦PROFILE.EMAIL⟧ — never your email*
